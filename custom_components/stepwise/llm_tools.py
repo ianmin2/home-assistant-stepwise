@@ -8,6 +8,7 @@ nothing here holds the event loop.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -77,11 +78,18 @@ class StepwiseTool(llm.Tool):
         def call() -> JsonObjectType:
             return getattr(self.engine, method)(**kwargs).as_dict()
 
+        started = time.perf_counter()
         try:
             return await hass.async_add_executor_job(call)
         except Exception as err:  # the turn must not die silently
             _LOGGER.exception("Stepwise tool %s failed", method)
             return self._sorry(method, err)
+        finally:
+            # PLAN section 15 asks how much resolution costs and has never had
+            # a number. Debug-level, so it costs nothing until somebody wants it.
+            _LOGGER.debug(
+                "Stepwise %s took %.0f ms", method, (time.perf_counter() - started) * 1000
+            )
 
     def _sorry(self, method: str, err: Exception) -> JsonObjectType:
         """Fail, and still say where they are.

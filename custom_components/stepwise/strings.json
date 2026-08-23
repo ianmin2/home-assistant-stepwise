@@ -36,6 +36,7 @@
       "init": {
         "title": "Stepwise",
         "menu_options": {
+          "saying": "What to say to it",
           "settings": "Settings",
           "subjects": "Things and their quirks",
           "runs": "Put a run down"
@@ -93,6 +94,10 @@
         "data": {
           "run_id": "Which run"
         }
+      },
+      "saying": {
+        "title": "What to say to it",
+        "description": "Say these to whichever assistant you gave Stepwise to.\n\n**Starting** — \"Talk me through descaling the kettle.\" \"I'd like to make a rosemary loaf on my bread machine.\"\n\n**Getting on with it** — \"Done.\" \"That's in.\" \"Next.\"\n\n**Coming back to it** — \"Where were we?\" Days later is fine. \"How's the loaf doing?\" picks out one job when several are on the go.\n\n**Asking anything** — \"How long has it been resting?\" \"How many steps left?\" Asking never costs you your place.\n\n**Saying what you see** — \"It's gone a bit sticky.\" Recorded against the step and the time. Nothing moves.\n\n**Putting it right** — \"No, go back.\" \"Go back, I've not done the salt.\" \"My machine takes the yeast first.\"\n\n**Stopping** — \"Hang on, leave it for now.\" It keeps your place. \"That's it, finished.\" closes it."
       }
     },
     "abort": {

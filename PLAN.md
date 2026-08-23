@@ -604,16 +604,31 @@ Phases 1 to 3 are the product. 4 to 6 make it shippable.
 - **Name.** Stepwise, Mise, Sous, Handrail, Alongside. Stepwise is clearest;
   Mise (from mise en place) is nicer but reads as cooking-only, and this is not
   cooking-only.
-- **Multi user.** Two people running procedures at once needs runs keyed by user.
-  Cheap now, expensive to retrofit. Recommend building it in from the start even
-  if the UI ignores it.
+- **Multi user.** *Settled in 0.2, and the fear was misplaced.* The expensive,
+  irreversible half — the schema — was already built: `runs.user_id` exists,
+  round trips, is written when a run starts and is filtered on. Only enforcement
+  was missing, and it was localised. The rule, now written down rather than
+  implied: **no owner means the household, an owner means that person, and a
+  caller with no user context speaks for the household** — which is what makes
+  one person, starting a run in the app and finishing it at a speaker, work at
+  all. A voice satellite usually carries no user, so this is the common case
+  rather than the edge one. Keying on a device or an area, if it is ever wanted,
+  is a change to one predicate.
+- **How much does resolution cost in latency?** *Partly answered in 0.2.* Not
+  much: resolution is tens of milliseconds. The cost is the model writing a whole
+  procedure out as nested JSON before anybody hears anything — fifteen to thirty
+  seconds on a small local model. Every tool call is now timed at debug level, so
+  the next version of this question can be answered with a number rather than a
+  worry. The original text follows.
+
 - **How much does resolution cost in latency?** Searching the local library,
   offering phonetic candidates and asking a clarifying question all happen before
   the person has been told anything useful. Worth measuring early: if resolution
   takes eight seconds, people will stop using it however good the rest is.
-- **Should `run_events` be exportable?** A timestamped log of a procedure is
-  exactly what a lab notebook is. Markdown or CSV export is close to free and may
-  be the feature that wins the research audience.
+- **Should `run_events` be exportable?** *Settled in 0.2: yes, and it should not
+  have been a question.* Retention deletes closed runs, so the only thing that
+  ever happened to a notebook was that it went. `stepwise.export_run` returns
+  markdown, CSV and rows.
 - **Should procedures be shareable?** A community library of subject profiles
   and generic-by-model knowledge would be genuinely valuable, and a much better
   artefact than a recipe database. Instance quirks are private and never

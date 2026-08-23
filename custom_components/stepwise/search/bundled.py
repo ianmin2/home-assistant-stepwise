@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .base import Findings, SearchProvider, to_results
+from .base import VOICE_BUDGET_SECONDS, Findings, SearchProvider, to_results
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,10 +23,17 @@ class BundledSearch(SearchProvider):
 
     name = "bundled"
 
-    def __init__(self, hass: HomeAssistant, base_url: str, timeout: int = 20) -> None:
+    def __init__(
+        self, hass: HomeAssistant, base_url: str, timeout: float = VOICE_BUDGET_SECONDS
+    ) -> None:
         self.hass = hass
         self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
+        # A ClientTimeout, not a bare number: aiohttp stopped accepting one,
+        # and the bare number raised into the catch-all below, where it came
+        # back as "the provider is not reachable" whether it was or not.
+        # Twenty seconds was too long for a voice turn regardless — somebody
+        # is standing there with their hands full.
+        self.timeout = aiohttp.ClientTimeout(total=float(timeout))
 
     async def search(self, query: str, scope: dict[str, Any] | None = None) -> Findings:
         session = async_get_clientsession(self.hass)
@@ -43,6 +51,11 @@ class BundledSearch(SearchProvider):
                         unavailable=f"the provider answered {response.status}",
                     )
                 payload = await response.json()
+        except TimeoutError:
+            _LOGGER.debug("bundled search took too long for a voice turn")
+            return Findings(
+                provider=self.name, unavailable="the search took too long to wait for"
+            )
         except Exception as err:
             _LOGGER.debug("bundled search failed: %s", err)
             return Findings(provider=self.name, unavailable=f"the provider is not reachable: {err}")

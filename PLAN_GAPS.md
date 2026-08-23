@@ -914,6 +914,38 @@ that repairs the worst failure is a better trade than fifteen that cannot.
 It is also the *only* new tool surface in this release. Voice pause was cut to
 its read-path half for exactly this reason: one breach, not two.
 
+### What actually shipped in 0.2
+
+Recorded honestly, because a plan that is never checked against the release is
+just a wish.
+
+**Closed:** G1, G2, G3, G4, G5 (both halves — the flag *and* the read path),
+G6, G7, G8, G9 including the migration that repairs stored text, G10, G11, G12,
+G13, G14, G15, G16, G17, G18 including the payload cap, G19, G20 (the options
+page), G21 (and a latent aiohttp bug in the bundled provider found while
+fixing it), G22, G23, G24, G25, G26, G27, G28, G29, G30, G31 with the test that
+catches it, G32 (events), G33, G36, G38 (the instrumentation), G39 (both cheap
+tests), G41 (stated, not fixed), G44.
+
+**Found while doing it, and fixed:**
+
+- Runs were ordered by timestamp alone, so two touched in the same millisecond
+  sorted arbitrarily. Switching to a run by name worked most of the time and
+  silently did not the rest of it. They now carry a counter that only goes up.
+- `BundledSearch` passed a bare integer where aiohttp wants a `ClientTimeout`,
+  and the resulting error was swallowed by a catch-all that reported it as "the
+  provider is not reachable". The provider may never have worked.
+- "Talk me through" — the phrase the front page teaches — was being queried as
+  a mishearing of "dough" on any installation with a loaf on file.
+
+**Deferred, as planned:** G34, G35, G37, G40, G43, the entity itself, and i18n.
+
+**Still open and now sharper:** whether the `speakable` column needs a
+provenance flag of its own. The 0.2 repair identifies its own past output by
+comparison, which works exactly once — a second change to `quantity_first`
+would have nothing to compare against. A flag saying "this was generated"
+should go in before that is needed, not after.
+
 ---
 
 *Sources for §2 are recorded in the release notes for 0.2.*

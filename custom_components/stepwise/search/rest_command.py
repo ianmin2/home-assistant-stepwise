@@ -7,6 +7,7 @@ research service somebody already runs.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -15,7 +16,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .base import Findings, SearchProvider, dig, to_results
+from .base import VOICE_BUDGET_SECONDS, Findings, SearchProvider, dig, to_results
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,12 +38,18 @@ class RestCommandSearch(SearchProvider):
                 payload[key] = value
 
         try:
-            response = await self.hass.services.async_call(
-                "rest_command",
-                self.command,
-                payload,
-                blocking=True,
-                return_response=True,
+            async with asyncio.timeout(VOICE_BUDGET_SECONDS):
+                response = await self.hass.services.async_call(
+                    "rest_command",
+                    self.command,
+                    payload,
+                    blocking=True,
+                    return_response=True,
+                )
+        except TimeoutError:
+            _LOGGER.debug("rest_command %s took too long for a voice turn", self.command)
+            return Findings(
+                provider=self.name, unavailable="the search took too long to wait for"
             )
         except HomeAssistantError as err:
             _LOGGER.debug("rest_command %s failed: %s", self.command, err)

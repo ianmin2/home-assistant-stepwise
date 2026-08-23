@@ -184,8 +184,21 @@ class StepwiseOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         return self.async_show_menu(
-            step_id="init", menu_options=["settings", "subjects", "runs"]
+            step_id="init", menu_options=["saying", "settings", "subjects", "runs"]
         )
+
+    async def async_step_saying(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """What to say to it.
+
+        The README has the phrases. The person standing in the kitchen with
+        their hands full does not have the README, and nothing anywhere in
+        Home Assistant told them a single thing they could say.
+        """
+        if user_input is not None:
+            return self.async_create_entry(data=dict(self.config_entry.options))
+        return self.async_show_form(step_id="saying", data_schema=vol.Schema({}))
 
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None

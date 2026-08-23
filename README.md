@@ -147,7 +147,7 @@ agent does the talking; Stepwise holds the state.
 flowchart LR
     P["🗣️ You"] <--> A["Assist pipeline<br/>speech to text, text to speech"]
     A <--> C["Your conversation agent<br/>local or cloud, your choice"]
-    C <-->|"15 tools"| S["Stepwise"]
+    C <-->|"16 tools"| S["Stepwise"]
     S <--> D[("stepwise.db<br/>one SQLite file<br/>in your config dir")]
     S -.->|"only if configured"| Q["🔎 Search provider"]
     S -.->|"only if configured"| M["🧠 Memory integration"]
@@ -172,10 +172,12 @@ flowchart TD
     K -->|"'Skip to the second prove'<br/>'Go back, I've not done the salt'"| GO["run_goto<br/>➜ pointer moves, and it says<br/>which step it landed on"]
     K -->|"'How many calories is that?'<br/>'How long has it been resting?'"| ASK["run_ask<br/>➜ answers. moves nothing"]
     K -->|"'It's gone a bit sticky'"| NOTE["run_note<br/>➜ recorded with a timestamp.<br/>moves nothing"]
+    K -->|"'No, go back. I didn't mean done'"| UNDO["run_undo<br/>➜ pointer goes back, and it says<br/>which step it put you on"]
     K -->|"'That's wrong for mine'"| CH["run_challenge<br/>➜ checks. moves nothing yet"]
 
     style ADV fill:#e8863c,stroke:#b3652c,color:#fff
     style GO fill:#e8863c,stroke:#b3652c,color:#fff
+    style UNDO fill:#e8863c,stroke:#b3652c,color:#fff
     style ASK fill:#f5f5f5,stroke:#999999,color:#333333
     style NOTE fill:#f5f5f5,stroke:#999999,color:#333333
     style CH fill:#f5f5f5,stroke:#999999,color:#333333
@@ -483,6 +485,46 @@ finger to scroll with. That decides the architecture, not the polish.
   fact. *"You never finished your loaf"* is a judgement, and it is why people
   stop opening apps.
 
+## For automations, and for keeping
+
+Stepwise holds the state; these are how everything else in your house reads it.
+
+| | |
+|---|---|
+| `stepwise.export_run` | The record of a run — every step, note, question and correction, timestamped — as markdown, CSV and rows. Nothing given, and it exports the one you last touched |
+| `stepwise.list_runs` | Everything on the go, with where each one is and how long since |
+| `stepwise.finish_run` | Close a run from a button or an automation |
+| `stepwise_step_advanced` | Fired on the event bus when a step is completed. *When the loaf reaches the prove, dim the kitchen* |
+| `stepwise_run_finished` | Fired when a run closes |
+| `stepwise_event` | Fired for anything at all that happens in a run |
+
+**Events rather than entities, on purpose.** A run's step text in an entity
+attribute is copied into Home Assistant's recorder database and kept there,
+which would quietly undo the promise below that everything Stepwise knows lives
+in one file you can delete. An entity surface is worth having and worth
+designing properly first — entity ids are permanent once they ship.
+
+## Where it falls short
+
+Written down because an unstated limit is worse than a stated one.
+
+- **It speaks English only.** Not the interface — Home Assistant translates
+  that — but everything it says out loud. The wording rules are in the
+  integration on purpose, so that translating it means translating a behaviour
+  rather than a string table, and that is not a small job.
+- **Steps come from your agent unless you configure a search provider**, and
+  with none configured it says so rather than implying otherwise. Nobody here
+  has verified them. [DISCLAIMER.md](DISCLAIMER.md) is not boilerplate.
+- **Planning is the slow part.** Resolution is milliseconds; a small local model
+  writing nine steps out can take half a minute, and you hear a holding line
+  rather than silence while it does.
+- **Continuous hands-free is your assistant's to give, not Stepwise's.**
+  Whether "done" needs a wake word each time is a Home Assistant pipeline
+  setting.
+- **One person's runs are private to them; runs with no owner belong to the
+  house.** A voice satellite usually carries no user, so most runs are the
+  household's. Subjects, quirks and facts are always shared.
+
 ## Your data
 
 ```mermaid
@@ -517,7 +559,7 @@ call, which is the single biggest cause of memory rot in projects like this.
 ## Under the bonnet
 
 <details>
-<summary><b>The fifteen tools</b></summary>
+<summary><b>The sixteen tools</b></summary>
 
 Deliberately few. Each does one thing and returns one speakable line plus
 structured detail.
@@ -530,13 +572,14 @@ structured detail.
 | `procedure_plan` | Store the steps and propose a name. Starts nothing |
 | `run_start` | Begin. Returns step one and the reference |
 | `run_where` | Where am I, in which thing, how long since. **Needs nothing to answer.** Optionally takes the *name* of another thing on the go, to switch to it |
-| `run_advance` | Complete this step, return the next. The only tool that moves a run on |
+| `run_advance` | Complete this step, return the next. The only tool that moves a run on. Says which step it landed on, and takes the step the agent thinks it read out, so a run that has drifted out of step is caught rather than moved |
 | `run_goto` | Reposition by description, always reporting where it landed |
 | `run_ask` | An aside. Answers from the procedure, the notes or the clock |
 | `run_note` | An observation, against the step and the time |
 | `run_challenge` | You dispute a step. Agrees, contradicts, or searches |
 | `run_amend` | Change a step or the order — scoped to this run, this thing, or the template |
 | `quirk_confirm` | Your answer when a quirk was re-confirmed aloud |
+| `run_undo` | Put the pointer back where it was, and say where that is |
 | `run_timer` | Start a Home Assistant timer, after a yes |
 | `run_finish` | Close, archive, record how it went |
 
@@ -609,7 +652,7 @@ procedures deduplicate.
 The core carries no Home Assistant imports, so it runs anywhere:
 
 ```bash
-python3 -m unittest discover -s tests   # 120 tests
+python3 -m unittest discover -s tests   # 185 tests
 ruff check custom_components tests
 ```
 

@@ -38,6 +38,14 @@ class Findings:
         }
 
 
+# How long a search may take before the person is talking to nobody. This is a
+# voice turn: somebody has said "my machine takes the yeast first" and is
+# standing there. Whatever the provider's own timeout is — the bundled one
+# allows twenty seconds, a rest_command inherits whatever it was configured
+# with — the answer has to come back inside this or not at all.
+VOICE_BUDGET_SECONDS = 6.0
+
+
 class SearchProvider:
     """Ask a scoped question and get back citable answers, or an honest nothing."""
 

@@ -3,16 +3,138 @@
 All notable changes to Stepwise are recorded here. Versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-08-23
 
-### Fixed
+**Trust the pointer, and trust what it says.** No new capabilities. The gaps
+this closes, and the ones deliberately left open, are set out in
+[PLAN_GAPS.md](PLAN_GAPS.md).
+
+### Claims that were made and not kept
+
+- **Quirks now supersede a contradiction, not only a repeat.** Supersession
+  needed the same words, so "the yeast goes in first" and "the yeast goes in
+  last" both stayed active, both bore on the same step, and both would have
+  been read out in the same breath. The same fix in the facts table, which had
+  the same defect.
+- **A fact can be forgotten.** `forget_fact` had no callers anywhere — not a
+  tool, not a service, not a screen. Facts now appear on a subject's page and
+  can be ticked away, and forget is part of what a memory backend must provide.
+- **A cold run is offered rather than assumed, whichever tool is asked.** Only
+  `run_where` honoured that. Saying "done" two days later moved the pointer on
+  whichever run happened to be touched last, silently.
+
+### The pointer
+
+- **Every advance says which step it landed on.** It was the only pointer move
+  that announced nothing, and the one that happens fifty times a run — so a
+  remark heard as "done" was a silent skip.
+- **`run_advance` takes `from_step`**, the step the agent believes it read out.
+  When it disagrees, nothing moves and the person is told where they are.
+  Optional on purpose: requiring it would stall the commonest utterance in the
+  product every time it went missing.
+- **`run_undo`**, a sixteenth tool. It reverses the pointer and nothing else,
+  and writes a new event rather than deleting the old one, because a spine that
+  can be rewritten is not a record.
+- **A run can be put down and picked back up.** `paused` had been declared since
+  the first release and set by nothing, so a misheard "stop a sec" closed a run
+  for good. `run_finish` now takes one decision — done, paused or stopped — and
+  a run stopped in the last few hours is still found by name and offered back,
+  which needs no decision from the model at all.
+- **A finished run can no longer be advanced by id**, and an id that is
+  invented, closed or somebody else's falls back to the obvious run rather than
+  answering "nothing on the go" about a job plainly half done.
+- **One engine call at a time.** The store locked every statement, but an engine
+  call is a sequence of them — two advances at once both read step three, both
+  wrote step four, and a step was silently skipped.
+- **Runs carry a counter that only goes up.** Two touched in the same
+  millisecond sorted arbitrarily, so switching to a run by name worked most of
+  the time and silently did not the rest of it.
+
+### What it says out loud
+
+- **A trailing number is no longer always a quantity.** "Bake at 180" was spoken
+  *and stored* as "180 of bake at"; "Programme 4" as "4 of Programme". Existing
+  databases are repaired on upgrade — only where the text is exactly what the
+  old code would have produced, so anything written by hand is left alone.
+- **"C", "in" and "m" are not always units.** "Preheat to 180 C" came out as
+  "180 cups of preheat to", and "Put 2 in the tin" as "Put 5.1 centimetres the
+  tin". Temperatures are said as degrees.
+- **Small masses are no longer converted into uselessness.** Seven grams of salt
+  was offered as "0.2 ounces", which no scale reads and which rounding put 20%
+  out.
+- "an hour 1" is now "an hour and a minute"; "1 and a half minutes" is "a minute
+  and a half". A note says which step it is against. A proposed name survives
+  being said aloud. Acronyms and model numbers keep their case — "ESP32" was
+  becoming "eSP32". "Two things on the go" counts.
+
+### Never silent, never a traceback
+
+- **A tool that raises no longer takes the turn with it.** It says something has
+  gone wrong *and where the person is*, because restating the place while
+  failing is the product working.
+- **A cold start says something.** It returned an empty line and a question
+  built from the whole utterance — "I don't have anything on file for talk me
+  through descaling the kettle. What is it?" — twice in the same payload.
+- **An unanswerable aside says where you are**, and the remaining steps come
+  back only when the remaining steps are what was asked for. Handed them
+  unasked, a model with no line of its own read the list out.
+- **"Talk me through" is no longer queried as a mishearing of "dough"** on any
+  installation with a loaf on file. It is the phrase the front page teaches.
+- A corrupt database, a locked one or a full disk now says what to do about it.
+
+### Two people, one kitchen
+
+- **The prompt no longer lists another person's runs** while the tools deny they
+  exist. Whose run is whose is one predicate: no owner means the household, an
+  owner means that person, a caller with no user context speaks for the house.
+- **A half-formed intent lives four minutes, not thirty**, and a sentence that
+  neither is short nor shares anything with what is held starts a new thought.
+  Two people at one speaker were having their sentences glued together.
+
+### Kept, and readable
+
+- **`stepwise.export_run`** returns a run as markdown, CSV and rows. The README
+  called the event log a lab notebook; there was no way to read it.
+  `stepwise.list_runs` and `stepwise.finish_run` too.
+- **Run events go on the Home Assistant event bus**, so an automation can act on
+  a step being reached. Events rather than entities on purpose — see the README.
+- **A numbered migration ladder.** The version was written on every connect
+  *before* being read, which destroyed the one thing a migration needs, and it
+  already disagreed with the schema on disk. A database from a newer Stepwise is
+  now refused rather than misread, and the file is copied aside before any
+  migration that rewrites data.
+- **Removing the integration sets the database aside** rather than leaving it to
+  resurrect itself on the next install.
+- **Retention no longer keeps twenty runs in total** for anybody who never named
+  a subject. Sequenced after the export, so there is a way to keep a record
+  before anything deletes one.
+- Diagnostics, carrying counts and settings and not one word of what a procedure
+  is about.
+
+### Smaller
+
+- The search response path can be configured. A botched edit meant the field
+  never rendered at all, so the recommended search adapter always ran with an
+  empty path. There is now a test that fails if any setting loses its box.
+- A search is given six seconds before a voice turn gives up on it. The bundled
+  provider was also passing a bare number where aiohttp wants a `ClientTimeout`,
+  and reporting the resulting error as "the provider is not reachable".
+- A timer is written into the record once it is genuinely running, not before.
+- An options page that tells you what to say to it.
+- Every tool call is timed at debug level.
+
+### Also here, from before the review
+
+Work done after 0.1.0 and never released on its own.
+
+#### Fixed
 
 - After a reorder the pointer goes to the first step **not yet done**, rather
   than following the step it happened to be on. Told "yeast goes in first"
   before anything has gone in, the answer is step one — the old behaviour
   silently skipped the yeast the correction was about.
 
-### Added
+#### Added
 
 - **Timers read out of the wording.** Nobody fills in a duration field; they
   write "wait 45 minutes for it to blister". Durations are now read from the
@@ -32,7 +154,7 @@ All notable changes to Stepwise are recorded here. Versions follow
   *derailleur* into "rail er" and *tangzhong* into "yang zoong" far more often
   than it invents a single strange word.
 
-### Changed
+#### Changed
 
 - One best guess is offered rather than a list. "Tangzhong?" is a better
   question than "tangzhong, or Panasonic?"
