@@ -123,7 +123,7 @@ class of project:
 
 | | Facts | Run state |
 |---|---|---|
-| example | "the bread machine is a Panasonic SD-YR2550" | "step 3 of 9, awaiting confirmation" |
+| example | "the bread machine is a Panasonic SD-2500" | "step 3 of 9, awaiting confirmation" |
 | lifetime | until it changes | hours to days, then archived |
 | shape | a sentence | a structured row |
 | retrieval | semantic, top k | direct, by id |
@@ -239,9 +239,9 @@ radiator, a bicycle, a car, a boiler, a houseplant or a person's knee.
 
 ```
 subject
-  id            panasonic_sd_yr2550        # or bike_winter_hack, rad_landing
+  id            panasonic_sd_2500        # or bike_winter_hack, rad_landing
   kind          bread_machine | radiator | bicycle | oven | ...
-  make, model   Panasonic, SD-YR2550       # may be unknown, that is fine
+  make, model   Panasonic, SD-2500       # may be unknown, that is fine
   label         "the winter bike"          # what the user calls this ONE
   aliases       ["the bread machine", "the panasonic"]
   attributes    { programmes: [...], has_dispenser: true }
@@ -395,7 +395,7 @@ procedure_challenge("yeast first, salt at top")
   |
   ├─ Does a stored quirk cover it?
   |     agrees    -> "You're right, and I have that noted. Reordering."
-  |     conflicts -> "My note says the opposite for the SD-YR2550. Shall I
+  |     conflicts -> "My note says the opposite for the SD-2500. Shall I
   |                   re-check?"  (never silently overrule the person present)
   |
   ├─ Unknown -> search provider, scoped to make and model

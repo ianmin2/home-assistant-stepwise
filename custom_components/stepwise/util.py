@@ -120,7 +120,7 @@ _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 
 
 def slugify(text: str, fallback: str = "item") -> str:
-    """A readable id. "Panasonic SD-YR2550" -> "panasonic_sd_yr2550"."""
+    """A readable id. "Panasonic SD-2500" -> "panasonic_sd_2500"."""
     folded = unicodedata.normalize("NFKD", text or "")
     folded = folded.encode("ascii", "ignore").decode("ascii").lower()
     slug = _SLUG_STRIP.sub("_", folded).strip("_")

@@ -41,14 +41,14 @@ class TestSubjects(StoreCase):
             "the bread machine",
             "bread_machine",
             make="Panasonic",
-            model="SD-YR2550",
+            model="SD-2500",
             aliases=["the panasonic"],
             attributes={"programmes": [1, 2, 3, 4], "has_dispenser": True},
         )
         self.store.save_subject(subject)
         loaded = self.store.get_subject(subject.id)
         assert loaded is not None
-        self.assertEqual(loaded.id, "panasonic_sd_yr2550")
+        self.assertEqual(loaded.id, "panasonic_sd_2500")
         self.assertEqual(loaded.aliases, ["the panasonic"])
         self.assertTrue(loaded.attributes["has_dispenser"])
 

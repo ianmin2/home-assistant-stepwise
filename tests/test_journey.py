@@ -45,7 +45,7 @@ class TestADayApart(unittest.TestCase):
     def test_the_whole_thing(self) -> None:
         # "I'd like to make a rosemary tangzhong loaf on my Panasonic bread machine."
         machine = self.engine.subject_save(
-            "the bread machine", "bread_machine", make="Panasonic", model="SD-YR2550"
+            "the bread machine", "bread_machine", make="Panasonic", model="SD-2500"
         ).data["subject_id"]
         planned = self.engine.procedure_plan(
             "Rosemary tangzhong loaf", RECIPE, subject_id=machine, source=const.SOURCE_WEB
@@ -65,7 +65,7 @@ class TestADayApart(unittest.TestCase):
         # "My machine takes yeast first and salt at the top."
         challenged = self.engine.run_challenge("my machine takes yeast first and salt at the top")
         self.assertEqual(challenged.data["status"], "unknown")
-        self.assertIn("Panasonic SD-YR2550", challenged.data["search_query"])
+        self.assertIn("Panasonic SD-2500", challenged.data["search_query"])
         self.assertEqual([step["n"] for step in challenged.data["affected_steps"]], [2, 3])
 
         # The search agrees, so the remaining steps are reordered and the quirk

@@ -14,20 +14,52 @@ time, across days, and picking up exactly where you left off.**
 
 ---
 
-> **"Guide me step by step."**
-> *"First, two hundred grams of wholemeal flour."*
-> **"My machine takes yeast first and salt at the top."**
-> *"Checking… you're right, that's this model. Reordering the rest. Yeast first
-> on yours, then the flour."*
-> **"Tell me when the ingredients are in."** …
->
-> *— doorbell goes, you disappear for two hours —*
->
-> **"Where were we?"**
-> *"On the rosemary loaf, you're on step three of nine, five grams of dried
-> yeast. Last touched two hours ago."*
+### A loaf, on a Tuesday
 
-That last line is the entire product.
+<table>
+<tr><th align="left" width="52%">🤖 &nbsp;Stepwise</th><th align="right" width="48%">🗣️ &nbsp;You</th></tr>
+<tr><td colspan="2" align="center"><i>Monday evening</i></td></tr>
+<tr><td></td><td align="right"><b>I'd like to make a rosemary yang zoong loaf<br/>on my Panasonic bread machine.</b></td></tr>
+<tr><td>Tangzhong — the water-roux method? Speech-to-text often gives me that as <i>yang zoong</i>.</td><td></td></tr>
+<tr><td></td><td align="right"><b>That's the one.</b></td></tr>
+<tr><td>Which bread machine is it? The programme number changes the steps.</td><td></td></tr>
+<tr><td></td><td align="right"><b>Panasonic SD-2500.</b></td></tr>
+<tr><td>Noted. Nine steps. Shall I call it <b>the rosemary loaf</b>?</td><td></td></tr>
+<tr><td></td><td align="right"><b>Yes.</b></td></tr>
+</table>
+
+<table>
+<tr><td colspan="2" align="center"><i>Tuesday morning</i></td></tr>
+<tr><td width="52%"></td><td width="48%" align="right"><b>Guide me step by step.</b></td></tr>
+<tr><td>Two hundred grams of wholemeal flour.<br/>Tell me when that's in.</td><td></td></tr>
+<tr><td></td><td align="right"><b>My machine takes yeast first<br/>and salt at the top.</b></td></tr>
+<tr><td>Nothing on file for the SD-2500 — let me check.<br/><br/>Confirmed, that's this model. I've reordered the four steps that were left, and noted it against this machine.<br/><br/>So: five grams of dried yeast first.</td><td></td></tr>
+<tr><td></td><td align="right"><b>Done.</b></td></tr>
+<tr><td>Two hundred grams of wholemeal flour.</td><td></td></tr>
+<tr><td></td><td align="right"><b>Done.</b></td></tr>
+<tr><td>Seven grams of salt.</td><td></td></tr>
+<tr><td></td><td align="right"><b>The dough's gone a bit sticky.</b></td></tr>
+<tr><td>Noted, against step four.</td><td></td></tr>
+</table>
+
+<table>
+<tr><td colspan="2" align="center"><i>🔔 &nbsp;The doorbell goes. Two hours pass.</i></td></tr>
+<tr><td width="52%"></td><td width="48%" align="right"><b>Where were we?</b></td></tr>
+<tr><td>On <b>the rosemary loaf</b>, you're on step four of nine, seven grams of salt.<br/>Last touched two hours ago.</td><td></td></tr>
+</table>
+
+That last exchange is the entire product.
+
+Everything Stepwise was holding while you answered the door:
+
+```text
+  the rosemary loaf                    Panasonic SD-2500
+  ●●●○○○○○○   step 4 of 9              last touched  2 hours ago
+  ─────────────────────────────────────────────────────────────
+  note   09:52  "the dough's gone a bit sticky"        (step 4)
+  learnt 09:41  yeast first, salt at the top    ← this machine only
+```
+
 
 ## The thing nobody else does
 
@@ -48,6 +80,29 @@ are in it**.
 | How long the dough's been resting | No idea | No idea | **To the minute** |
 | Two jobs on the go at once | Two lists | Confusion | **Told apart by name** |
 | Works with your existing assistant | — | — | **Any HA conversation agent** |
+
+## The words that matter are the ones it mishears
+
+Speech-to-text is excellent at English and poor at *your* vocabulary. Tangzhong,
+derailleur, ferrule, Maillard, tare weight, ESP32-C6 — get one of those wrong
+and you don't get a slightly wrong answer. You get a confident, fluent procedure
+for something you never said.
+
+So Stepwise compares what it heard against what this installation already knows
+— the things you own, the procedures you have run, the ingredients in them — and
+when a word matches nothing it knows but *sounds* like something it does, it
+asks rather than inventing:
+
+| 🎤 It heard | 📚 It already knows | 💬 So it says |
+|---|---|---|
+| "yang zoong" | tangzhong | *"Tangzhong — the water-roux method? Speech-to-text often gives me that as yang zoong."* |
+| "the rail er" | derailleur | *"Derailleur — on the winter bike?"* |
+| "feral" | ferrule | *"Ferrule?"* |
+| "my yard" | Maillard | *"Maillard?"* |
+
+A genuinely new word is not an error — it's just a new word, and it passes
+through without comment. It only asks when there is something plausible to
+offer, which is the difference between careful and irritating.
 
 ## It isn't about bread
 
@@ -142,85 +197,80 @@ Any contact resets the clock, so a job you touch every twenty minutes for nine
 hours stays hot throughout. Several can be live at once; the **reference** —
 "the rosemary loaf", "the landing radiator" — is how they're told apart.
 
-## Worked examples
+## More of the same shape
 
 <details open>
-<summary><b>🍞 A loaf, over two days, with a correction</b></summary>
+<summary><b>🚲 &nbsp;"Change my bike chain" — which bike?</b></summary>
 
-> **You** — "I'd like to make a rosemary tangzhong loaf on my Panasonic bread machine. Fetch me a recipe."
-> **Stepwise** — *"Nine steps for a rosemary tangzhong loaf. Shall I call it the rosemary loaf?"*
->
-> *(next morning)*
->
-> **You** — "Guide me step by step."
-> **Stepwise** — *"Two hundred grams of wholemeal flour. Tell me when that's done."*
-> **You** — "My machine takes yeast first and salt at the top, opposite to most."
-> **Stepwise** — *"Nothing on file for the SD-YR2550 — let me check… confirmed. Reordering the rest. Yeast first on yours, then the flour."*
-> **You** — "Done." … "Done." … "It's gone a bit sticky."
-> **Stepwise** — *"Noted."*
-> **You** — "How long has the tangzhong been resting?"
-> **Stepwise** — *"Forty minutes on this step, an hour and ten altogether."*
->
-> *(doorbell. two hours pass.)*
->
-> **You** — "Where were we?"
-> **Stepwise** — *"On the rosemary loaf, you're on step six of nine, ten grams of chopped rosemary."*
-> **You** — "Go back, I've not done the salt yet."
-> **Stepwise** — *"Right, step four, seven grams of salt."*
->
-> *(…later)*
->
-> **Stepwise** — *"Programme four, medium crust. That's the wholemeal one on yours. Shall I set a timer for three hours ten? That's the programme length."*
->
-> **Next month, same machine:** *"Yeast first on yours, then the flour."* — said before it's relied on, so you can correct it in two words if the ground has moved.
+<table>
+<tr><th align="left" width="52%">🤖 &nbsp;Stepwise</th><th align="right" width="48%">🗣️ &nbsp;You</th></tr>
+<tr><td></td><td align="right"><b>Talk me through changing my bike chain.</b></td></tr>
+<tr><td>Which one — the winter bike, or the summer bike?</td><td></td></tr>
+<tr><td></td><td align="right"><b>The winter one.</b></td></tr>
+<tr><td>That one's eleven speed, so it needs a quick link rather than a pin.<br/>You told me that in March. Still right?</td><td></td></tr>
+<tr><td></td><td align="right"><b>Still right.</b></td></tr>
+<tr><td>Then first, shift onto the smallest ring at both ends.</td><td></td></tr>
+</table>
+
+Two bicycles are two subjects. A quirk learned about one is **never** applied to
+the other — because a quirk about a derailleur bike, silently applied to a
+singlespeed years later, is worse than having learned nothing. It is confidently
+wrong, mid-instruction, while your hands are covered in oil.
 
 </details>
 
 <details>
-<summary><b>🚲 "Change my bike chain" — which bike?</b></summary>
+<summary><b>🔬 &nbsp;A reaction, logged as it happens</b></summary>
 
-> **You** — "Talk me through changing my bike chain."
-> **Stepwise** — *"Which one, the winter bike or the summer bike?"*
-> **You** — "Winter."
-> **Stepwise** — *"Eleven speed on that one, so it needs a quick link rather than a pin — you told me that in March. Still right?"*
-> **You** — "Yes."
-> **Stepwise** — *"Right. First, shift onto the smallest ring at both ends."*
->
-> Two bicycles are two subjects. A quirk learned about one is **never** applied
-> to the other — because a quirk about a derailleur bike, silently applied to a
-> singlespeed years later, is worse than having learned nothing: it is
-> confidently wrong, mid-instruction, while your hands are covered in oil.
+<table>
+<tr><th align="left" width="52%">🤖 &nbsp;Stepwise</th><th align="right" width="48%">🗣️ &nbsp;You</th></tr>
+<tr><td></td><td align="right"><b>Start the protocol on batch seven.</b></td></tr>
+<tr><td>Step one, bring the buffer to thirty-seven degrees.</td><td></td></tr>
+<tr><td></td><td align="right"><b>Done.</b></td></tr>
+<tr><td>Step two, add the substrate and start timing.</td><td></td></tr>
+<tr><td></td><td align="right"><b>It's gone cloudy.</b></td></tr>
+<tr><td>Noted, against step two.</td><td></td></tr>
+<tr><td colspan="2" align="center"><i>🍽️ &nbsp;Lunch</i></td></tr>
+<tr><td></td><td align="right"><b>Where were we?</b></td></tr>
+<tr><td>On <b>batch seven</b>, you're on step two, and it's been two hours and ten minutes since you last touched it.<br/>You noted it went cloudy forty minutes in.</td><td></td></tr>
+</table>
 
-</details>
-
-<details>
-<summary><b>🔬 A reaction, logged as it happens</b></summary>
-
-> **You** — "Start the protocol on batch seven."
-> **Stepwise** — *"Step one, bring the buffer to thirty-seven degrees."*
-> **You** — "Done." … "It's gone cloudy."
-> **Stepwise** — *"Noted, on step four."*
->
-> *(after lunch)*
->
-> **You** — "Where were we?"
-> **Stepwise** — *"On batch seven, you're on step four, and it's been two hours and ten minutes since you last touched it. You noted it went cloudy at forty minutes in."*
->
-> Every advance, note, question and correction is timestamped in an append-only
-> log. A run's history *is* a lab notebook, and it is already written.
+Every advance, note, question and correction is timestamped in an append-only
+log. A run's history *is* a lab notebook, and it is already written by the time
+you want it.
 
 </details>
 
 <details>
-<summary><b>🔧 A radiator valve, where being wrong matters</b></summary>
+<summary><b>🔧 &nbsp;A radiator valve, where being wrong matters</b></summary>
 
-> **You** — "Swap the landing radiator to a thermostatic valve."
-> **Stepwise** — *"What pipe size is it? It changes which valve fits."*
-> **You** — "Fifteen mil."
-> **Stepwise** — *"Noted, fifteen millimetres. First, close the valve at both ends and drain it down. Tell me when that's done."*
->
-> It asks for a make, model or measurement **only when the answer changes the
-> steps**, and never wastes your time asking when it doesn't. It is not a form.
+<table>
+<tr><th align="left" width="52%">🤖 &nbsp;Stepwise</th><th align="right" width="48%">🗣️ &nbsp;You</th></tr>
+<tr><td></td><td align="right"><b>Swap the landing radiator to a thermostatic valve.</b></td></tr>
+<tr><td>What pipe size is it? It decides which valve fits.</td><td></td></tr>
+<tr><td></td><td align="right"><b>Fifteen mil.</b></td></tr>
+<tr><td>Noted, fifteen millimetres.<br/><br/>Step one, close the valves at both ends and drain it down.<br/>Tell me when that's done.</td><td></td></tr>
+</table>
+
+It asks for a make, model or measurement **only when the answer changes the
+steps**, and never wastes your time asking when it doesn't. It is not a form.
+
+</details>
+
+<details>
+<summary><b>🔨 &nbsp;A build, before the thing exists</b></summary>
+
+<table>
+<tr><th align="left" width="52%">🤖 &nbsp;Stepwise</th><th align="right" width="48%">🗣️ &nbsp;You</th></tr>
+<tr><td></td><td align="right"><b>I'm building the ESP32 sensor project. The board and the case have arrived, the sensors haven't.</b></td></tr>
+<tr><td>Noted against <b>the sensor project</b>: board and case in, sensors outstanding.<br/><br/>That leaves seven steps you can do now, and three that wait on the sensors. Start with the seven?</td><td></td></tr>
+<tr><td></td><td align="right"><b>Go on then.</b></td></tr>
+<tr><td>Step one, flash the firmware before anything is soldered.</td><td></td></tr>
+</table>
+
+A subject need not exist yet. For a build it holds the target rather than a
+product — the board, the pinout, the bill of materials, which parts have
+arrived — and the same run machinery applies.
 
 </details>
 
@@ -291,7 +341,7 @@ flowchart TD
     MM -->|"no, and it matters"| ASK2["Ask, and store it"]
     MM -->|"yes"| Q{"Is there a note<br/>about this one?"}
     Q -->|"it agrees"| AG["'You're right, and I have<br/>that noted. Reordering.'"]
-    Q -->|"it says the opposite"| CO["'My note says the opposite for<br/>the SD-YR2550. Shall I re-check?'"]
+    Q -->|"it says the opposite"| CO["'My note says the opposite for<br/>the SD-2500. Shall I re-check?'"]
     Q -->|"nothing on file"| W["Search, scoped to<br/>the make and model"]
     W -->|"confirms"| AM["Reorder the remaining steps, and<br/>remember it for this machine only"]
     W -->|"refutes"| SAY["Say so, cite it plainly,<br/>offer to proceed either way"]

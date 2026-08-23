@@ -17,7 +17,7 @@ def subjects() -> list[models.Subject]:
             "the bread machine",
             "bread_machine",
             make="Panasonic",
-            model="SD-YR2550",
+            model="SD-2500",
             aliases=["the panasonic"],
         ),
     ]
@@ -40,10 +40,10 @@ class TestSubjectResolution(unittest.TestCase):
         self.assertTrue(resolved.loose)
 
     def test_an_alias_and_a_model_number_both_resolve(self) -> None:
-        for spoken in ("the panasonic", "SD-YR2550", "the bread machine"):
+        for spoken in ("the panasonic", "SD-2500", "the bread machine"):
             resolved = resolution.resolve_subject(spoken, subjects())
             assert resolved.subject is not None, spoken
-            self.assertEqual(resolved.subject.id, "panasonic_sd_yr2550", spoken)
+            self.assertEqual(resolved.subject.id, "panasonic_sd_2500", spoken)
 
     def test_nothing_on_file_says_so(self) -> None:
         resolved = resolution.resolve_subject("the landing radiator", subjects())

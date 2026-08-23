@@ -12,10 +12,10 @@ learned nothing.
 
 | Field | Example | Notes |
 |---|---|---|
-| `id` | `panasonic_sd_yr2550` | Derived from make and model, or from the label. Never spoken. |
+| `id` | `panasonic_sd_2500` | Derived from make and model, or from the label. Never spoken. |
 | `kind` | `bread_machine` | Lower case with underscores. Gives a generic fallback. |
 | `label` | `the winter bike` | What you call **this one**. How two of a sort are told apart out loud. |
-| `make`, `model` | `Panasonic`, `SD-YR2550` | Asked for when they change the instructions, never assumed. |
+| `make`, `model` | `Panasonic`, `SD-2500` | Asked for when they change the instructions, never assumed. |
 | `aliases` | `["the panasonic"]` | Other things you call it. |
 | `attributes` | `{"speeds": 11}` | Anything that changes instructions later. |
 | `status` | `active` | Or `retired`, or `replaced`. |

@@ -51,7 +51,7 @@ class TestReadingAResponse(unittest.TestCase):
 class TestNoProvider(unittest.TestCase):
     def test_it_says_it_cannot_rather_than_returning_nothing_found(self) -> None:
         provider = search_none.NoSearch("no search provider is configured")
-        findings = asyncio.run(provider.search("Panasonic SD-YR2550 yeast first"))
+        findings = asyncio.run(provider.search("Panasonic SD-2500 yeast first"))
         self.assertFalse(findings.found)
         self.assertEqual(findings.unavailable, "no search provider is configured")
         self.assertEqual(findings.as_dict()["provider"], "none")

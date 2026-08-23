@@ -29,7 +29,7 @@ class Kitchen(unittest.TestCase):
         self.addCleanup(self.store.close)
         self.engine = engine.Engine(self.store, engine.Settings())
         self.subject_id = self.engine.subject_save(
-            "the bread machine", "bread_machine", make="Panasonic", model="SD-YR2550"
+            "the bread machine", "bread_machine", make="Panasonic", model="SD-2500"
         ).data["subject_id"]
         self.procedure_id = self.engine.procedure_plan(
             "Rosemary tangzhong loaf", LOAF, subject_id=self.subject_id
@@ -268,7 +268,7 @@ class TestCorrections(Kitchen):
     def test_an_unknown_claim_is_scoped_to_make_and_model_for_searching(self) -> None:
         reply = self.engine.run_challenge("my machine takes yeast first and salt at the top")
         self.assertEqual(reply.data["status"], "unknown")
-        self.assertIn("Panasonic SD-YR2550", reply.data["search_query"])
+        self.assertIn("Panasonic SD-2500", reply.data["search_query"])
         self.assertEqual([step["n"] for step in reply.data["affected_steps"]], [2, 3])
 
     def test_a_claim_about_an_unidentified_subject_asks_which(self) -> None:
@@ -299,7 +299,7 @@ class TestCorrections(Kitchen):
         reply = self.engine.run_challenge("no, salt first and yeast at the bottom")
         self.assertEqual(reply.data["status"], "conflicts")
         self.assertIn("Shall I re-check?", reply.speech)
-        self.assertIn("SD-YR2550", reply.speech)
+        self.assertIn("SD-2500", reply.speech)
 
     def test_reordering_changes_this_run_and_not_the_template(self) -> None:
         reply = self.engine.run_amend(
@@ -558,7 +558,7 @@ class TestSubjectIdentity(Kitchen):
         )
         self.assertEqual(reply.data["status"], "fork_or_amend")
         self.assertIn("Different one, or has this one changed?", reply.speech)
-        self.assertEqual(self.store.get_subject(self.subject_id).model, "SD-YR2550")
+        self.assertEqual(self.store.get_subject(self.subject_id).model, "SD-2500")
 
     def test_a_confirmed_change_is_applied(self) -> None:
         self.engine.subject_save(
