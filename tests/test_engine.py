@@ -656,6 +656,66 @@ class TestItNeverGoesQuiet(Kitchen):
         self.assertTrue(asked.data["remaining"])
 
 
+class TestPuttingSomethingDown(Kitchen):
+    """"Stop a sec" and "I'm giving up on this" sound identical. Only one of
+    them should be hard to come back from."""
+
+    def test_a_pause_leaves_the_run_open_and_where_it_was(self) -> None:
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        reply = self.engine.run_finish(run_id=run_id, how="paused")
+        self.assertEqual(reply.data["status"], const.RUN_PAUSED)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_PAUSED)
+        self.assertEqual(run.current_step, 2)
+
+    def test_a_paused_run_is_offered_rather_than_assumed(self) -> None:
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, how="paused")
+        reply = self.engine.run_advance()
+        self.assertEqual(reply.data["status"], "offer_cold")
+
+    def test_naming_a_paused_run_picks_it_back_up(self) -> None:
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, how="paused")
+        self.engine.run_advance(run_id=run_id)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ACTIVE)
+
+    def test_a_run_stopped_by_mistake_is_still_findable(self) -> None:
+        """It used to answer "nothing on the go" about a job plainly half done."""
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        reply = self.engine.run_where()
+        self.assertEqual(reply.data["status"], "recently_closed")
+        self.assertEqual(reply.data["run_id"], run_id)
+
+    def test_and_can_be_picked_back_up(self) -> None:
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        self.engine.run_reopen()
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ACTIVE)
+        self.assertEqual(run.current_step, 2)
+
+    def test_a_finished_run_is_not_offered_back(self) -> None:
+        """Reopening one somebody just said they had finished is the tool
+        second-guessing them."""
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, outcome="came out well")
+        self.assertEqual(self.engine.run_where().speech, "Nothing on the go.")
+
+    def test_a_paused_run_is_never_pruned(self) -> None:
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, how="paused")
+        self.store.prune_runs(1)
+        self.assertIsNotNone(self.store.get_run(run_id))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -846,13 +906,20 @@ class TestSubjectAwareSettings(Kitchen):
         self.assertNotIn("on yours", reply.speech)
         self.assertIsNone(reply.data["subject_setting"])
 
-    def test_a_timer_is_recorded_against_the_run(self) -> None:
+    def test_a_timer_is_recorded_once_it_is_genuinely_running(self) -> None:
+        """The record is written after the timer starts, not before. A device
+        that cannot run one produced an honest apology and a log that said a
+        timer had started."""
         run_id = self.engine.run_start(
             self.procedure_id, reference="the programme loaf", subject_id=self.subject_id
         ).data["run_id"]
         reply = self.engine.run_timer(11400, name="the programme loaf")
         self.assertIn("3 hours 10", reply.speech)
         self.assertTrue(reply.data["pointer_unchanged"])
+        self.assertTrue(reply.data["record_when_started"])
+        self.assertEqual(self.store.events(run_id, [const.EVENT_TIMER_STARTED]), [])
+
+        self.engine.timer_started(run_id=run_id, seconds=11400, name="the programme loaf")
         started = self.store.events(run_id, [const.EVENT_TIMER_STARTED])
         self.assertEqual(started[0].data["seconds"], 11400)
 

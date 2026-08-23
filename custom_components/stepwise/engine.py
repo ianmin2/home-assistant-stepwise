@@ -33,11 +33,13 @@ from .const import (
     EVENT_CHALLENGED,
     EVENT_FINISHED,
     EVENT_NOTE,
+    EVENT_PAUSED,
     EVENT_QUIRK_CONFIRMED,
     EVENT_QUIRK_LEARNED,
     EVENT_QUIRK_RETRACTED,
     EVENT_QUIRK_STATED,
     EVENT_REPOSITIONED,
+    EVENT_RESUMED,
     EVENT_RUN_STARTED,
     EVENT_TIMER_STARTED,
     EVENT_UNDONE,
@@ -53,6 +55,7 @@ from .const import (
     RUN_ABANDONED,
     RUN_ACTIVE,
     RUN_DONE,
+    RUN_PAUSED,
     SCOPE_PROCEDURE,
     SCOPE_RUN,
     SCOPE_SUBJECT,
@@ -313,6 +316,9 @@ class Engine:
         event = self.store.add_event(
             RunEvent(run_id=run.id, kind=kind, at=stamp, step_n=step_n, text=text, data=data)
         )
+        if run.status == RUN_PAUSED and kind not in (EVENT_PAUSED,):
+            run.status = RUN_ACTIVE
+            self.store.save_run(run)
         run.updated_at = stamp
         self.store.touch_run(run.id, stamp)
         if run.subject_id:
@@ -405,6 +411,10 @@ class Engine:
         run = open_runs[0]
         rest = open_runs[1:]
         state, _since = self.stickiness(run)
+        if run.status == RUN_PAUSED:
+            # Put down on purpose. Picking it back up is a thing somebody says,
+            # not a thing that happens to them.
+            return InPlay(run, "cold", others=rest)
         if state == COLD:
             return InPlay(run, "cold", others=rest)
         if rest and state != HOT:
@@ -812,6 +822,26 @@ class Engine:
             # to deny a run that is plainly part done. Answer about the obvious
             # one instead.
         if not open_runs:
+            # A run closed by mistake must not vanish. "Stop a sec" and "I'm
+            # giving up on this" sound the same, and the wrong one used to be
+            # unrecoverable by voice: "where were we" answered "nothing on the
+            # go" about a job that was plainly half done.
+            lately = self._recently_closed(reference)
+            if lately is not None:
+                procedure = self._procedure(lately)
+                step = procedure.step(lately.current_step)
+                since = elapsed_seconds(lately.finished_at or lately.updated_at)
+                where = f" You were on step {step.n} of {procedure.total_steps}." if step else ""
+                return Reply(
+                    f"You left {lately.reference} {say_elapsed(since)}.{where} Pick it up?",
+                    {
+                        "status": "recently_closed",
+                        "run_id": lately.id,
+                        "reference": lately.reference,
+                        "step": self._step_data(step) if step else None,
+                        "closed_as": lately.status,
+                    },
+                )
             return Reply("Nothing on the go.", {"status": "nothing_active", "runs": []})
 
         if reference:
@@ -871,6 +901,46 @@ class Engine:
                 "other_runs": [self._run_data(other) for other in open_runs[1:]],
             },
         )
+
+    def _recently_closed(self, reference: str | None = None) -> Run | None:
+        """A run stopped in the last few hours, which somebody may want back.
+
+        Only stopped ones. A run that reached its last step was finished on
+        purpose, and offering to reopen it would be the tool second-guessing
+        somebody who had just told it they were done.
+        """
+        closed = [
+            run for run in self.store.recent_runs(limit=20) if run.status == RUN_ABANDONED
+        ]
+        recent = [
+            run
+            for run in closed
+            if (elapsed_seconds(run.finished_at or run.updated_at) or 0) <= 6 * 60 * 60
+        ]
+        if not recent:
+            return None
+        if reference:
+            picked, _question = self._pick_run(reference, recent)
+            return picked
+        return recent[0]
+
+    def run_reopen(self, run_id: str | None = None, user_id: str | None = None) -> Reply:
+        """Pick a closed run back up, exactly where it was left."""
+        run = self.store.get_run(run_id) if run_id else self._recently_closed()
+        if run is None or not self.may_touch(run, user_id):
+            return Reply("Nothing to pick back up.", {"status": "nothing_to_reopen"})
+        if run.status in OPEN_RUN_STATUSES:
+            return self.run_where(user_id=user_id, run_id=run.id)
+        if run.status == RUN_DONE:
+            return Reply(
+                f"{run.reference} is finished. Start it again if you want another.",
+                {"status": "already_finished", "run_id": run.id},
+            )
+        run.status = RUN_ACTIVE
+        run.finished_at = None
+        self.store.save_run(run)
+        self._record(run, EVENT_RESUMED, step_n=run.current_step)
+        return self.run_where(user_id=user_id, run_id=run.id)
 
     def _pick_run(self, reference: str, runs: Sequence[Run]) -> tuple[Run | None, str]:
         """Match what they called it against what is on the go."""
@@ -1192,8 +1262,16 @@ class Engine:
         run_id: str | None = None,
         user_id: str | None = None,
         abandoned: bool = False,
+        how: str | None = None,
     ) -> Reply:
-        """Close, archive, optionally record how it went."""
+        """Close, archive, optionally record how it went.
+
+        `how` is one decision rather than two flags: "done", "paused" or
+        "stopped". A pause is not a close — the run stays open, stays findable
+        and is never pruned — because "hang on, stop a sec" and "I'm giving up
+        on this" sound identical to speech-to-text, and only one of them should
+        be hard to come back from.
+        """
         play = self.in_play(user_id, run_id)
         asking = self._needs_asking(play)
         if asking is not None:
@@ -1201,13 +1279,45 @@ class Engine:
         run = play.run
         assert run is not None
         procedure = self._procedure(run)
+
+        if (how or "").lower() == "paused":
+            return self._pause(run, procedure, outcome)
+
+        status = RUN_DONE
+        if abandoned or (how or "").lower() in ("stopped", "abandoned"):
+            status = RUN_ABANDONED
         return self._close(
             run,
             procedure,
             outcome=outcome,
-            status=RUN_ABANDONED if abandoned else RUN_DONE,
+            status=status,
             last_step=procedure.step(run.current_step),
         )
+
+    def _pause(self, run: Run, procedure: Procedure, note: str | None) -> Reply:
+        """Put a run down without closing it. Nothing is lost, nothing is pruned."""
+        run.status = RUN_PAUSED
+        self.store.save_run(run)
+        self._record(run, EVENT_PAUSED, step_n=run.current_step, text=note)
+        step = procedure.step(run.current_step)
+        where = f" You're on step {step.n} of {procedure.total_steps}." if step else ""
+        return Reply(
+            f"Right, {run.reference} is down.{where} Say where were we when you want it.",
+            {
+                "status": RUN_PAUSED,
+                "run_id": run.id,
+                "reference": run.reference,
+                "step": self._step_data(step) if step else None,
+                "total_steps": procedure.total_steps,
+            },
+        )
+
+    def _resume_if_paused(self, run: Run) -> None:
+        """Any contact picks a paused run back up. Saying so is the tool's job."""
+        if run.status == RUN_PAUSED:
+            run.status = RUN_ACTIVE
+            self.store.save_run(run)
+            self._record(run, EVENT_RESUMED, step_n=run.current_step)
 
     def _close(
         self,
@@ -1592,6 +1702,29 @@ class Engine:
 
     # Timers --------------------------------------------------------------
     @_serialised
+    def timer_started(
+        self, run_id: str | None = None, user_id: str | None = None, seconds: int = 0,
+        name: str | None = None,
+    ) -> None:
+        """Write the timer into the record, once it is genuinely running.
+
+        It used to be written before the attempt. On a device that cannot run
+        timers the tool said so honestly and the spine still said one had
+        started — a log that disagrees with what happened is worth less than no
+        log, and this one is meant to be the artefact somebody keeps.
+        """
+        run = self.current_run(user_id, run_id)
+        if run is None:
+            return
+        self._record(
+            run,
+            EVENT_TIMER_STARTED,
+            step_n=run.current_step,
+            text=(name or run.reference or "timer").strip(),
+            seconds=int(seconds),
+        )
+
+    @_serialised
     def run_timer(
         self,
         seconds: int,
@@ -1606,14 +1739,11 @@ class Engine:
         """
         run = self.current_run(user_id, run_id)
         label = (name or (run.reference if run else "") or "timer").strip()
-        if run is not None:
-            self._record(
-                run, EVENT_TIMER_STARTED, step_n=run.current_step, text=label, seconds=int(seconds)
-            )
         return Reply(
             f"Timer set for {say_duration(seconds)}.",
             {
                 "status": "timer_recorded",
+                "record_when_started": True,
                 "run_id": run.id if run else None,
                 "reference": run.reference if run else None,
                 "name": label,

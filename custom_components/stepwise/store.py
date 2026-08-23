@@ -761,13 +761,18 @@ class Store:
         if keep_per_subject <= 0:
             return 0
         closed = self._rows(
-            "SELECT id, subject_id FROM runs WHERE status IN (?, ?) ORDER BY updated_at DESC",
+            "SELECT id, subject_id, procedure_id FROM runs WHERE status IN (?, ?) "
+            "ORDER BY touch_seq DESC, updated_at DESC, rowid DESC",
             (RUN_DONE, RUN_ABANDONED),
         )
-        seen: dict[str | None, int] = {}
+        seen: dict[str, int] = {}
         doomed: list[str] = []
         for row in closed:
-            key = row["subject_id"]
+            # Runs with no subject used to share one bucket, so "twenty kept
+            # per thing" was twenty in total for anybody who never named
+            # anything. They are bucketed by procedure instead: still bounded,
+            # and it keeps more than it used to rather than less.
+            key = row["subject_id"] or f"procedure:{row['procedure_id']}"
             seen[key] = seen.get(key, 0) + 1
             if seen[key] > keep_per_subject:
                 doomed.append(row["id"])

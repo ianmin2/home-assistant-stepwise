@@ -606,6 +606,17 @@ class RunTimerTool(StepwiseTool):
                 "why": str(err),
             }
 
+        # Only now is it true. Recording it before the attempt meant a device
+        # that cannot run timers produced an honest apology and a record that
+        # said one had started.
+        await hass.async_add_executor_job(
+            lambda: self.engine.timer_started(
+                run_id=args.get("run_id"),
+                user_id=self._user_id(llm_context),
+                seconds=seconds,
+                name=recorded.get("name"),
+            )
+        )
         return {**recorded, "timer_started": True}
 
 
@@ -614,14 +625,22 @@ class RunFinishTool(StepwiseTool):
 
     name = "run_finish"
     description = (
-        "Close a run. Record how it went if they said: it is the note that makes the "
-        "next one better. Use abandoned when they are stopping rather than finishing, "
-        "and say so plainly, without judgement."
+        "Close or put down a run. Record how it went if they said: it is the note "
+        "that makes the next one better. Say what happened plainly, without "
+        "judgement — a run left is simply a run left."
     )
     parameters = vol.Schema(
         {
             vol.Optional("outcome", description="How it went, in their words"): str,
-            vol.Optional("abandoned", description="Stopping rather than finishing"): bool,
+            vol.Optional(
+                "how",
+                description=(
+                    "done when they have finished it, paused when they are putting it "
+                    "down for now — 'hang on', 'stop a sec', 'later' — and stopped only "
+                    "when they mean they are not going back to it. When in doubt, paused: "
+                    "a run put down can be picked up, and one stopped by mistake cannot."
+                ),
+            ): vol.In(["done", "paused", "stopped"]),
             vol.Optional("run_id", description="Only when more than one run is live"): str,
         }
     )
@@ -679,6 +698,8 @@ of the step you last read out. Nothing else advances a run.
 - "Skip to...", "go back...", "I'm at the bit where..." -> run_goto, and always \
 say which step it landed on.
 - "Where were we" or anything that assumes you already know -> run_where.
+- "Hang on", "stop a sec", "leave it for now" -> run_finish with how="paused". \
+Never "stopped" unless they have said they are not going back to it.
 - If a tool answers that it has them on a different step, believe it and say so. \
 It is holding the record; you are holding a guess.
 - "That's wrong for mine" -> run_challenge, then run_amend once it is settled.
