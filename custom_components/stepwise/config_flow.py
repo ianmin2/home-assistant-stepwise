@@ -130,8 +130,7 @@ def settings_schema(current: dict[str, Any]) -> vol.Schema:
                 description={"suggested_value": current.get(CONF_SEARCH_REST_COMMAND)},
             ): selector.TextSelector(),
             vol.Optional(
-                CONF_SEARCH_BASE_URL,
-    CONF_SEARCH_RESPONSE_PATH,
+                CONF_SEARCH_RESPONSE_PATH,
                 description={"suggested_value": current.get(CONF_SEARCH_RESPONSE_PATH)},
             ): selector.TextSelector(),
             vol.Optional(

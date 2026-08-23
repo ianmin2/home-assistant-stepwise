@@ -108,12 +108,21 @@ def say_duration(seconds: float | None) -> str:
     hours, rest = divmod(seconds, 3600)
     minutes, secs = divmod(rest, 60)
     if hours:
-        if minutes:
-            return f"{hours} hours {minutes}" if hours != 1 else f"an hour {minutes}"
-        return "an hour" if hours == 1 else f"{hours} hours"
+        lead = "an hour" if hours == 1 else f"{hours} hours"
+        if not minutes:
+            return lead
+        # "three hours ten" is how a person says it, but only once the tail is
+        # big enough to sound like a number. "an hour 1" is not English.
+        if minutes == 30:
+            return "an hour and a half" if hours == 1 else f"{hours} and a half hours"
+        if minutes == 1:
+            return f"{lead} and a minute"
+        if minutes < 10:
+            return f"{lead} and {minutes} minutes"
+        return f"{lead} {minutes}"
     if minutes:
         if secs >= 30:
-            return f"{minutes} and a half minutes"
+            return "a minute and a half" if minutes == 1 else f"{minutes} and a half minutes"
         return "a minute" if minutes == 1 else f"{minutes} minutes"
     return f"{secs} seconds"
 

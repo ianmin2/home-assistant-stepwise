@@ -56,7 +56,6 @@ UNIT_WORDS = {
     "tbsp": "tablespoons",
     "oz": "ounces",
     "lb": "pounds",
-    "c": "cups",
     "mm": "millimetres",
     "cm": "centimetres",
     "m": "metres",
@@ -67,6 +66,49 @@ UNIT_WORDS = {
     "nm": "newton metres",
     "deg": "degrees",
 }
+
+# Units whose abbreviation is also an ordinary English word. "Put 2 in the tin"
+# is not two inches. What separates the two is the word that follows: a unit is
+# followed by what is being measured ("1 in clearance", "2 in of slack"), while
+# the preposition is followed by whatever the thing goes into. `parse_duration`
+# takes the same line about single letters, deliberately.
+_AMBIGUOUS_UNITS = {"m", "l", "in"}
+_AFTER_A_PREPOSITION = {
+    "the", "a", "an", "this", "that", "these", "those", "it", "them",
+    "my", "your", "our", "their", "its", "his", "her",
+    "there", "here", "each", "every", "both", "either", "any", "some", "all",
+    "order", "place", "position", "turn", "front", "case", "half", "line",
+}
+
+# "180 C" is a temperature. Said as a unit it becomes a volume.
+_DEGREES = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:°\s*)?([CF])\b")
+
+# The tail of a phrase that means the number after it is a setting or a target,
+# not an amount of anything: "bake at 180", "tighten to 25 Nm".
+_CONNECTING = {
+    "at", "to", "for", "on", "in", "of", "by", "with",
+    "until", "till", "from", "about", "around", "onto", "into",
+}
+_SETTINGS_TAIL = {
+    "programme", "program", "cycle", "mode", "setting", "speed",
+    "gas", "mark", "level", "number", "position", "channel", "step",
+}
+
+
+def _unit_here(match: re.Match[str], unit: str) -> bool:
+    """Whether this abbreviation is really a unit, given what follows it."""
+    if unit.lower().replace(" ", "") not in _AMBIGUOUS_UNITS:
+        return True
+    rest = match.string[match.end() :].lstrip()
+    if not rest[:1].isalpha():
+        return True  # end of the phrase, or punctuation: nothing else it can be
+    return rest.split()[0].strip(",:.;").lower() not in _AFTER_A_PREPOSITION
+
+
+def say_degrees(text: str) -> str:
+    """"180 C" -> "180 degrees". Before anything reads C as a unit."""
+    return _DEGREES.sub(lambda m: f"{m.group(1)} degrees", text)
+
 
 _TRAILING_QUANTITY = re.compile(
     r"^(?P<item>.+?)[,:]?\s*(?P<amount>\d+(?:[.,]\d+)?(?:\s*(?:-|to)\s*\d+(?:[.,]\d+)?)?)\s*"
@@ -100,7 +142,7 @@ def convert_units(text: str, units: str = "") -> str:
         amount, unit = match.group(1), match.group(2)
         key = unit.lower().replace(" ", "")
         factor_and_unit = table.get(key) or table.get(unit.lower())
-        if not factor_and_unit:
+        if not factor_and_unit or not _unit_here(match, unit):
             return match.group(0)
         factor, becomes = factor_and_unit
         try:
@@ -117,6 +159,11 @@ def convert_units(text: str, units: str = "") -> str:
             converted, becomes = converted / 16, "lb"
         elif becomes == "fl oz" and converted >= 20:  # a UK pint is 20 fl oz
             converted, becomes = converted / 20, "pt"
+        # Seven grams is a fifth of an ounce. No kitchen scale reads that, and
+        # rounding it to one decimal puts it 20% out. Leave it in the units the
+        # source used and say those, rather than convert it into uselessness.
+        if converted < 1:
+            return match.group(0)
         return f"{_tidy(converted)} {becomes}"
 
     return re.sub(r"(\d+(?:[.,]\d+)?)\s*(fl oz|[a-zA-Z]{1,4})\b", swap, text)
@@ -136,7 +183,7 @@ def expand_units(text: str) -> str:
     def swap(match: re.Match[str]) -> str:
         amount, unit = match.group(1), match.group(2)
         word = UNIT_WORDS.get(unit.lower().replace(" ", ""))
-        if not word:
+        if not word or not _unit_here(match, unit):
             return match.group(0)
         if amount.replace(",", ".") in ("1", "1.0"):
             word = _singular(word)
@@ -147,7 +194,7 @@ def expand_units(text: str) -> str:
 
 def render(text: str, units: str = "") -> str:
     """A quantity as it should be heard: right system, unit said as a word."""
-    return expand_units(convert_units(text, units))
+    return expand_units(say_degrees(convert_units(text, units)))
 
 
 def quantity_first(phrase: str, units: str = "") -> str:
@@ -157,6 +204,54 @@ def quantity_first(phrase: str, units: str = "") -> str:
     already leads with a number is left alone. Units are neither converted nor
     spelled out here: that happens when the step is spoken, so changing the
     units setting changes what is said without rewriting anything stored.
+    """
+    phrase = (phrase or "").strip()
+    if not phrase or _LEADING_QUANTITY.match(phrase):
+        return phrase
+    match = _TRAILING_QUANTITY.match(phrase)
+    if not match:
+        return phrase
+    item = match.group("item").strip(" ,:")
+    amount = match.group("amount").strip()
+    unit = (match.group("unit") or "").strip()
+    if unit and unit.lower() not in UNIT_WORDS and len(unit) > 2:
+        return phrase
+    # A number at the end of an instruction is not always an amount of
+    # something. "Bake at 180" and "Programme 4" are a target and a setting;
+    # inverting them says "180 of bake at". What decides it is the word the
+    # phrase ends on, not the number.
+    tail = item.split()[-1].strip(" ,:.").lower() if item.split() else ""
+    if tail in _CONNECTING or tail in _SETTINGS_TAIL:
+        return phrase
+    if item[:1].isupper() and not item.isupper() and " " in item:
+        item = item[0].lower() + item[1:]
+    lead = f"{amount} {unit}".strip()
+    return f"{lead} of {item}" if item else lead
+
+
+def soften(text: str) -> str:
+    """Lower the opening letter for the middle of a sentence.
+
+    Not blindly: "ESP32" must not become "eSP32", nor "SD-2500" "sD-2500". A
+    word that carries a capital anywhere but the front, or a digit, is a name.
+    """
+    head = text.split(" ", 1)[0].strip(",:.;")
+    if not text[:1].isupper():
+        return text
+    if head.isupper() or any(ch.isdigit() for ch in head) or head[1:] != head[1:].lower():
+        return text
+    return text[0].lower() + text[1:]
+
+
+def legacy_quantity_first(phrase: str) -> str:
+    """What `quantity_first` used to produce, kept so the damage can be found.
+
+    Before 0.2 a number at the end of any phrase was treated as a quantity, so
+    "Bake at 180" was stored as "180 of bake at". That text is on disk in every
+    database written by 0.1. Regenerating every `speakable` would overwrite the
+    ones an author wrote by hand, so the repair asks a narrower question: is
+    this exactly what the old function would have produced from the
+    instruction? If it is, it was generated, and it can be generated again.
     """
     phrase = (phrase or "").strip()
     if not phrase or _LEADING_QUANTITY.match(phrase):
@@ -216,8 +311,7 @@ def with_reference(reference: str, sentence: str) -> str:
     """Restated casually at natural moments, never announced as an id."""
     if not reference:
         return sentence
-    body = sentence[0].lower() + sentence[1:] if sentence[:1].isupper() else sentence
-    return f"On {reference}, {body}"
+    return f"On {reference}, {soften(sentence)}"
 
 
 def opener(state: str, reference: str, since_seconds: float | None, step_summary: str) -> str:
@@ -256,7 +350,7 @@ def state_quirk(claim: str) -> str:
     claim = claim.strip().rstrip(".")
     if not claim:
         return ""
-    return f"On yours, {claim[0].lower()}{claim[1:]}."
+    return f"On yours, {soften(claim)}."
 
 
 def reconfirm_quirk(claim: str, source: str, age: str) -> str:
@@ -274,7 +368,7 @@ def reconfirm_quirk(claim: str, source: str, age: str) -> str:
 def landed(step: Step, units: str = "") -> str:
     """Positioning always reports where it landed (section 8.1)."""
     said = render(step.said, units)
-    return f"Right, step {step.n}, {said[0].lower()}{said[1:]}"
+    return f"Right, step {step.n}, {soften(said)}"
 
 
 def remaining(steps: list[Step], units: str = "") -> str:

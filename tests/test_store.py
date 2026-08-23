@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -196,9 +197,9 @@ class TestQuirks(StoreCase):
         assert reloaded is not None
         self.assertIsNotNone(reloaded.last_confirmed_at)
 
-    def test_an_older_database_gains_the_new_columns(self) -> None:
+    def test_reopening_a_database_leaves_it_at_the_current_version(self) -> None:
         version = self.store.schema_version()
-        self.assertGreaterEqual(version, 1)
+        self.assertEqual(version, const.SCHEMA_VERSION)
         reopened = store.Store(self.store.path).connect()
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.schema_version(), version)
@@ -208,6 +209,88 @@ class TestQuirks(StoreCase):
         self.store.add_quirk(models.Quirk(self.subject.id, "yeast first"))
         self.assertEqual(self.store.quirks(other.id), [])
 
+
+class MigrationCase(unittest.TestCase):
+    """A database written by 0.1, opened by this version."""
+
+    def a_version_one_database(self, steps: list[tuple[int, str, str]]) -> str:
+        """A file shaped like 0.1 left it: stamped 1, missing the late columns."""
+        path = str(Path(tempfile.mkdtemp()) / "stepwise.db")
+        conn = sqlite3.connect(path)
+        conn.executescript(store.SCHEMA)
+        for table in ("runs", "quirks"):
+            for column in ("subject_loose", "last_stated_at"):
+                existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if column in existing:
+                    conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        conn.execute(
+            "INSERT INTO procedures (id, title, source, created_at, updated_at) "
+            "VALUES ('p1', 'a loaf', 'user', ?, ?)",
+            (util.iso(), util.iso()),
+        )
+        for n, instruction, speakable in steps:
+            conn.execute(
+                "INSERT INTO procedure_steps (procedure_id, n, instruction, speakable) "
+                "VALUES ('p1', ?, ?, ?)",
+                (n, instruction, speakable),
+            )
+        conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_the_columns_0_1_added_without_a_version_arrive(self) -> None:
+        path = self.a_version_one_database([])
+        opened = store.Store(path).connect()
+        self.addCleanup(opened.close)
+        columns = {row["name"] for row in opened.conn.execute("PRAGMA table_info(runs)")}
+        self.assertIn("subject_loose", columns)
+        self.assertEqual(opened.schema_version(), const.SCHEMA_VERSION)
+
+    def test_speech_the_old_code_mangled_is_repaired(self) -> None:
+        """"Bake at 180" was stored as "180 of bake at". It is on disk, so the
+        fix to the function repairs nothing on its own."""
+        path = self.a_version_one_database(
+            [
+                (1, "Bake at 180", "180 of bake at"),
+                (2, "wholemeal flour, 200 g", "200 g of wholemeal flour"),
+            ]
+        )
+        opened = store.Store(path).connect()
+        self.addCleanup(opened.close)
+        said = {
+            row["n"]: row["speakable"]
+            for row in opened.conn.execute("SELECT n, speakable FROM procedure_steps")
+        }
+        self.assertEqual(said[1], "Bake at 180")
+        self.assertEqual(said[2], "200 g of wholemeal flour")
+
+    def test_speech_somebody_wrote_by_hand_is_left_alone(self) -> None:
+        path = self.a_version_one_database([(1, "Bake at 180", "into the oven, gas six")])
+        opened = store.Store(path).connect()
+        self.addCleanup(opened.close)
+        row = opened.conn.execute("SELECT speakable FROM procedure_steps").fetchone()
+        self.assertEqual(row["speakable"], "into the oven, gas six")
+
+    def test_a_repair_keeps_the_file_it_started_from(self) -> None:
+        path = self.a_version_one_database([(1, "Bake at 180", "180 of bake at")])
+        opened = store.Store(path).connect()
+        self.addCleanup(opened.close)
+        kept = list(Path(path).parent.glob("stepwise.db.v*"))
+        self.assertTrue(kept, "the file should be copied aside before data is rewritten")
+
+    def test_a_database_from_a_newer_stepwise_is_refused(self) -> None:
+        """Never open a newer database and misread it. Say so instead."""
+        path = self.a_version_one_database([])
+        opened = store.Store(path).connect()
+        opened.conn.execute(
+            "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+            (str(const.SCHEMA_VERSION + 1),),
+        )
+        opened.conn.commit()
+        opened.close()
+        with self.assertRaises(store.StoreError):
+            store.Store(path).connect()
 
 if __name__ == "__main__":
     unittest.main()

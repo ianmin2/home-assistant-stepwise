@@ -6,9 +6,12 @@ Assistant layer runs these in an executor. No Home Assistant imports here.
 
 from __future__ import annotations
 
+import os
+import shutil
 import sqlite3
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from .const import (
@@ -152,6 +155,74 @@ CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts (subject_id);
 """
 
 
+class StoreError(RuntimeError):
+    """The database cannot be used as it stands, and a person needs telling why."""
+
+
+def _add_columns(conn: sqlite3.Connection, columns: Iterable[tuple[str, str, str]]) -> None:
+    for table, column, definition in columns:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """Columns that 0.1 added without ever bumping the version.
+
+    They were applied on every connect by a loop that could only add a
+    defaulted column. Both are already present in most databases; this is the
+    same work, done once and recorded.
+    """
+    _add_columns(
+        conn,
+        (
+            ("runs", "subject_loose", "INTEGER NOT NULL DEFAULT 0"),
+            ("quirks", "last_stated_at", "TEXT"),
+        ),
+    )
+
+
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """Repair the spoken text that 0.1 generated wrongly.
+
+    `quantity_first` treated any trailing number as a quantity, so "Bake at
+    180" was stored as "180 of bake at" and read out that way. Only the values
+    the old function would itself have produced are touched: anything else was
+    written by whoever planned the procedure, and is left exactly as it is.
+    """
+    from . import speech
+
+    for table, key in (("procedure_steps", "procedure_id"), ("run_steps", "run_id")):
+        rows = conn.execute(
+            f"SELECT {key} AS owner, n, instruction, speakable FROM {table} "
+            f"WHERE speakable IS NOT NULL AND speakable != ''"
+        ).fetchall()
+        for row in rows:
+            stored, instruction = row["speakable"], row["instruction"]
+            if stored != speech.legacy_quantity_first(instruction):
+                continue  # somebody wrote this by hand
+            repaired = speech.quantity_first(instruction)
+            if repaired != stored:
+                conn.execute(
+                    f"UPDATE {table} SET speakable = ? WHERE {key} = ? AND n = ?",
+                    (repaired, row["owner"], row["n"]),
+                )
+
+
+@dataclass(frozen=True)
+class Migration:
+    """One numbered step. `rewrites_data` decides whether a backup is taken."""
+
+    run: Callable[[sqlite3.Connection], None]
+    rewrites_data: bool = False
+
+
+MIGRATIONS: dict[int, Migration] = {
+    2: Migration(_migration_2),
+    3: Migration(_migration_3, rewrites_data=True),
+}
+
+
 class Store:
     """Everything Stepwise remembers, apart from long-lived facts."""
 
@@ -168,7 +239,13 @@ class Store:
                 self._conn.row_factory = sqlite3.Row
                 self._conn.execute("PRAGMA journal_mode=WAL")
                 self._conn.execute("PRAGMA foreign_keys=ON")
-                self._migrate()
+                try:
+                    self._migrate()
+                except Exception:
+                    # A database we will not use is a database we do not hold open.
+                    self._conn.close()
+                    self._conn = None
+                    raise
         return self
 
     def close(self) -> None:
@@ -184,27 +261,97 @@ class Store:
         assert self._conn is not None
         return self._conn
 
-    # Columns added after the first release. CREATE TABLE above covers new
-    # databases; these bring an existing one up to the same shape.
-    ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
-        ("runs", "subject_loose", "INTEGER NOT NULL DEFAULT 0"),
-        ("quirks", "last_stated_at", "TEXT"),
-    )
+    def _stored_version(self) -> int | None:
+        """The version on disk, read before anything is allowed to change it.
 
-    def _migrate(self) -> None:
+        None for a database that has never been stamped, which is either brand
+        new or predates the meta table.
+        """
         conn = self._conn
         assert conn is not None
-        conn.executescript(SCHEMA)
-        for table, column, definition in self.ADDED_COLUMNS:
-            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-            if column not in existing:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if "meta" not in tables:
+            return None if tables else 0  # no tables at all: a new file
+        row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        if row is None:
+            return None
+        try:
+            return int(row["value"])
+        except (TypeError, ValueError):
+            return None
+
+    def _stamp(self, version: int) -> None:
+        conn = self._conn
+        assert conn is not None
         conn.execute(
             "INSERT INTO meta (key, value) VALUES ('schema_version', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (str(SCHEMA_VERSION),),
+            (str(version),),
         )
+
+    def _back_up(self, from_version: int) -> None:
+        """Copy the file aside before a migration that rewrites data.
+
+        A run's history is the artefact somebody wanted. Never risk it on the
+        assumption that a migration is correct.
+        """
+        if not self.path or self.path == ":memory:" or not os.path.exists(self.path):
+            return
+        spare = f"{self.path}.v{from_version}"
+        if os.path.exists(spare):
+            return  # a previous attempt already kept one; do not overwrite it
+        conn = self._conn
+        assert conn is not None
         conn.commit()
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            shutil.copyfile(self.path, spare)
+        except (OSError, sqlite3.Error) as err:  # pragma: no cover - disk trouble
+            raise StoreError(f"could not back the database up before migrating: {err}") from err
+
+    def _migrate(self) -> None:
+        """Bring the database up to SCHEMA_VERSION, one numbered step at a time.
+
+        The version is read *before* any DDL runs, because it is the only thing
+        that says which steps are needed. Writing it first — which is what the
+        first release did — destroys the information the migration depends on.
+        """
+        conn = self._conn
+        assert conn is not None
+        found = self._stored_version()
+
+        if found is not None and found > SCHEMA_VERSION:
+            raise StoreError(
+                f"{self.path} was written by a newer Stepwise (database version "
+                f"{found}, this version understands {SCHEMA_VERSION}). Upgrade "
+                f"Stepwise again, or restore the backup taken before the upgrade."
+            )
+
+        fresh = found is None or found == 0
+        conn.executescript(SCHEMA)
+        if fresh:
+            self._stamp(SCHEMA_VERSION)
+            conn.commit()
+            return
+
+        at = found or 0
+        for version in sorted(MIGRATIONS):
+            if version <= at:
+                continue
+            step = MIGRATIONS[version]
+            if step.rewrites_data:
+                self._back_up(at)
+            try:
+                step.run(conn)
+            except sqlite3.Error as err:
+                conn.rollback()
+                raise StoreError(f"migration to version {version} failed: {err}") from err
+            self._stamp(version)
+            conn.commit()
+            at = version
 
     def schema_version(self) -> int:
         row = self._row("SELECT value FROM meta WHERE key = 'schema_version'")
