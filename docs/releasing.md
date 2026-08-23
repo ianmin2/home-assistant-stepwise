@@ -9,7 +9,7 @@ which is why it is written down rather than done.
 
 ```bash
 gh auth login
-gh repo create ianmin2/stepwise --public --source . --remote origin --push
+gh repo create ianmin2/home-assistant-stepwise --public --source . --remote origin --push
 ```
 
 HACS reads three things from the repository itself, and refuses without them:
@@ -19,7 +19,7 @@ HACS reads three things from the repository itself, and refuses without them:
 - a **README**, which is already here
 
 ```bash
-gh repo edit ianmin2/stepwise \
+gh repo edit ianmin2/home-assistant-stepwise \
   --description "Guided step by step procedures for Home Assistant" \
   --add-topic home-assistant --add-topic hacs --add-topic homeassistant \
   --add-topic home-assistant-custom --add-topic voice-assistant
@@ -47,7 +47,7 @@ mkdir -p custom_integrations/stepwise
 cp ../brands/custom_integrations/stepwise/icon*.png custom_integrations/stepwise/
 git add custom_integrations/stepwise
 git commit -m "Add Stepwise"
-gh pr create --title "Add Stepwise" --body "Custom integration: https://github.com/ianmin2/stepwise"
+gh pr create --title "Add Stepwise" --body "Custom integration: https://github.com/ianmin2/home-assistant-stepwise"
 ```
 
 The `brands/` directory in this repository is only a holding pen for those two
@@ -82,7 +82,7 @@ files. It is not part of the integration and Home Assistant never reads it.
 
 HACS does not need Stepwise to be in its default list. Anyone can add it now:
 
-*HACS → three dots → Custom repositories →* `https://github.com/ianmin2/stepwise`,
+*HACS → three dots → Custom repositories →* `https://github.com/ianmin2/home-assistant-stepwise`,
 category *Integration*.
 
 Getting into the default list is a separate pull request to
