@@ -1,6 +1,9 @@
 
 # Where Stepwise is lagging
 
+> The first two sweeps live at the end of this file. Sweeps after 0.2.1
+> shipped are recorded in [SWEEPS.md](SWEEPS.md).
+
 **A gap analysis against the code as it stands, August 2026.**
 Companion to [PLAN.md](PLAN.md), which is the design. This document is the
 distance between the design and what is actually built, plus the distance

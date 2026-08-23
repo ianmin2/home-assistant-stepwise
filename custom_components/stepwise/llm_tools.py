@@ -108,8 +108,8 @@ class StepwiseTool(llm.Tool):
             if run is None:
                 return ""
             return (
-                f" You were on {run.reference}, step {run.current_step}."
-                " Nothing has moved."
+                f" — you're still on {run.reference}, step {run.current_step}, "
+                "and nothing's moved"
             )
 
         where = ""
@@ -122,7 +122,7 @@ class StepwiseTool(llm.Tool):
         except Exception:  # already failing; do not fail louder
             where = ""
         return {
-            "speech": f"Something's gone wrong at my end.{where}",
+            "speech": f"Something's gone wrong at my end{where}.",
             "status": "failed",
             "tool": method,
             "error": str(err),
@@ -549,14 +549,11 @@ class RunAmendTool(StepwiseTool):
         reply = await self._run(
             hass, "run_amend", user_id=self._user_id(llm_context), **tool_input.tool_args
         )
-        if self.memory is not None and reply.get("quirk_id"):
-            # Stepwise keeps run state; durable facts belong in the memory layer.
-            claim = tool_input.tool_args.get("why") or tool_input.tool_args.get("change") or ""
-            subject = await hass.async_add_executor_job(
-                lambda: self.engine.store.get_run(str(reply.get("run_id")))
-            )
-            if claim and subject and subject.subject_id:
-                await self.memory.remember(claim, subject.subject_id, source="stepwise")
+        # A correction becomes a quirk, and the quirk store is where it is
+        # stated, re-checked, superseded and retractable. Mirroring it into
+        # the facts table as well — which this used to do — left a copy the
+        # retraction never touched, re-asserted at every run start, for ever,
+        # with no voice path out. One claim, one home.
         return reply
 
 

@@ -901,6 +901,25 @@ class TestTheSweepFindings(Kitchen):
         self.store.save_run(run)
         self.assertEqual(self.engine.run_undo().data["status"], "nothing_active")
 
+
+    def test_a_reopened_run_is_announced_not_silently_resurrected(self) -> None:
+        """"It's gone sticky" bringing a stopped run back to life with only
+        "Noted." is a silent override, and the rule is that there are none."""
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        reply = self.engine.run_note("it's gone a bit sticky")
+        self.assertIn("Back on the rosemary loaf", reply.speech)
+        self.assertIn("Noted", reply.speech)
+        self.assertTrue(reply.data.get("resumed_run"))
+
+    def test_the_pickup_is_said_once_not_twice_by_undo(self) -> None:
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_finish(run_id=run_id, how="stopped")
+        reply = self.engine.run_undo()
+        self.assertEqual(reply.speech.count("back"), 1, reply.speech)
+
     def test_a_phrasal_verb_title_is_named_after_its_object(self) -> None:
         for title, expected in [
             ("Top up the oil", "the oil"),
@@ -911,6 +930,127 @@ class TestTheSweepFindings(Kitchen):
             self.assertIn(expected, reply.speech, title)
             self.assertNotIn("the up", reply.speech, title)
             self.assertNotIn("the down", reply.speech, title)
+
+
+class TestTheThirdSweep(Kitchen):
+    """The correction flow and the front door, attacked properly at last."""
+
+    def with_quirk(self, claim: str = "the yeast goes in first") -> str:
+        quirk = self.store.add_quirk(
+            models.Quirk(self.subject_id, claim, learned_from=const.LEARNED_FROM_USER)
+        )
+        return quirk.id
+
+    def test_a_contradiction_can_never_be_agreed_with(self) -> None:
+        """Stored "yeast goes in first", told "yeast goes in last", it said
+        "You're right, and I have that noted" — and confirmed the opposite."""
+        self.with_quirk()
+        run_id = self.start()
+        reply = self.engine.run_challenge("the yeast goes in last", run_id=run_id)
+        self.assertEqual(reply.data["status"], "conflicts")
+        self.assertIn("opposite", reply.speech)
+
+    def test_a_change_after_a_reorder_edits_the_step_they_meant(self) -> None:
+        """One call doing both applied the change against the old numbering,
+        rewriting the wrong step — including the shared template's."""
+        run_id = self.start()
+        reply = self.engine.run_amend(
+            reorder=[3, 1, 2, 4, 5, 6, 7],
+            step_n=1,
+            change="5 g dried yeast, sprinkled evenly",
+            scope="procedure",
+            run_id=run_id,
+        )
+        changed = [item for item in reply.data["amended"] if item.get("step") == 1]
+        self.assertTrue(changed)
+        self.assertIn("yeast", changed[0]["was"].lower())
+        template = self.store.get_procedure(self.procedure_id)
+        assert template is not None
+        self.assertIn("flour", template.step(1).instruction.lower())
+        self.assertIn("sprinkled", template.step(3).instruction.lower())
+
+    def test_a_repeated_number_in_a_reorder_does_not_duplicate_the_step(self) -> None:
+        run_id = self.start()
+        self.engine.run_amend(reorder=[3, 3, 1], run_id=run_id)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        procedure = self.engine._procedure(run)
+        steps = procedure.steps
+        self.assertEqual(len(steps), len(LOAF))
+        self.assertEqual(len({step.instruction for step in steps}), len(LOAF))
+
+    def test_amending_a_step_that_does_not_exist_says_so(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_amend(step_n=9, change="anything", run_id=run_id)
+        self.assertEqual(reply.data["status"], "nothing_amended")
+        self.assertIn("no step 9", reply.speech)
+
+    def test_also_steps_actually_amends_them(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_amend(
+            step_n=2, change="skip this one", also_steps=[3], run_id=run_id
+        )
+        touched = {item["step"] for item in reply.data["amended"]}
+        self.assertEqual(touched, {2, 3})
+
+    def test_confirming_a_withdrawn_note_does_not_pretend_to_keep_it(self) -> None:
+        quirk_id = self.with_quirk()
+        self.store.retract_quirk(quirk_id)
+        reply = self.engine.quirk_confirm(quirk_id=quirk_id, still_right=True)
+        self.assertEqual(reply.data["status"], "quirk_withdrawn")
+
+    def test_undo_after_a_reorder_asks_rather_than_guessing(self) -> None:
+        """The recorded moves are numbered in the old order, so walking back
+        to one of those numbers lands somewhere else entirely."""
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_amend(reorder=[4, 1, 2, 3, 5, 6, 7], run_id=run_id)
+        reply = self.engine.run_undo(run_id=run_id)
+        self.assertEqual(reply.data["status"], "reordered_since")
+
+    def test_a_paused_run_is_found_by_guide_me_through(self) -> None:
+        """"Guide me through the rosemary loaf", with that loaf paused, was
+        answered "there's one on file" — as if it had never been started."""
+        run_id = self.start("the rosemary loaf")
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_finish(run_id=run_id, how="paused")
+        reply = self.engine.resolve_intent("guide me through the rosemary loaf")
+        self.assertEqual(reply.data.get("run_id"), run_id)
+
+    def test_whats_next_without_an_apostrophe_still_gets_the_list(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_ask("whats left", run_id=run_id)
+        self.assertTrue(reply.data["remaining"])
+        self.assertIn("Left to do", reply.speech)
+
+    def test_how_long_on_this_step_is_about_this_step(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_ask("how long on this step", run_id=run_id)
+        self.assertNotIn("left", reply.speech.lower())
+
+    def test_go_back_at_the_start_says_so(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_goto("go back", run_id=run_id)
+        self.assertEqual(reply.data["status"], "at_the_start")
+
+    def test_a_step_number_past_the_end_says_how_many_there_are(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_goto("skip to step 40", run_id=run_id)
+        self.assertEqual(reply.data["status"], "no_such_step")
+        self.assertIn(str(len(LOAF)), reply.speech)
+
+    def test_an_exact_run_name_is_not_second_guessed(self) -> None:
+        self.start("the loaf")
+        self.start("the rosemary loaf")
+        reply = self.engine.run_where(reference="the loaf")
+        self.assertEqual(reply.data["reference"], "the loaf")
+
+    def test_a_reorder_with_no_reason_stores_no_quirk(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_amend(reorder=[2, 1, 3, 4, 5, 6, 7], scope="subject", run_id=run_id)
+        self.assertIsNone(reply.data["quirk_id"])
+        self.assertEqual(self.store.quirks(self.subject_id), [])
 
 
 if __name__ == "__main__":

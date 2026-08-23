@@ -51,6 +51,7 @@ from .const import (
     NAMING_NEVER_ASK,
     NAMING_PROPOSE,
     OPEN_RUN_STATUSES,
+    QUIRK_ACTIVE,
     QUIRK_STALE_DAYS,
     RUN_ABANDONED,
     RUN_ACTIVE,
@@ -172,22 +173,35 @@ def _continues(held: str, spoken: str) -> bool:
     what is already held. A whole new request from somebody else across the
     kitchen usually does neither.
     """
-    if len(words(spoken)) <= 5:
-        return True
-    shared = set(words(spoken)) & set(words(held))
+    spoken_words = words(spoken)
+    if len(spoken_words) <= 3:
+        return True  # answers are short: "the winter bike", "yes", "white"
+    shared = set(spoken_words) & set(words(held))
     return bool(shared - POSITION_NOISE)
 
 
 # `normalise` turns "what's" into "what s", so the apostrophe never survives
 # to be matched against.
 _ASKS_WHAT_IS_LEFT = re.compile(
-    r"\b(what( s| is)? (left|remaining|next)|how many (more|left|are left)"
-    r"|what else|rest of it|anything else)\b"
+    r"\b(what(s| s| is)? (left|remaining|next)|how many (more|left|are left)"
+    r"|what else|rest of it|anything (else|left)|much left)\b"
 )
 
 
 class StepwiseError(RuntimeError):
     """Something is wrong that a person needs telling about in a sentence."""
+
+
+class NoSuchStep(Exception):
+    """A step number that does not exist. Never guess from the other words."""
+
+    def __init__(self, number: int) -> None:
+        super().__init__(str(number))
+        self.number = number
+
+
+class AtTheStart(Exception):
+    """"Go back" with nothing behind you."""
 
 
 @dataclass
@@ -242,7 +256,26 @@ def _serialised(method: Callable[..., Reply]) -> Callable[..., Reply]:
     @functools.wraps(method)
     def serialised(self: Engine, *args: Any, **kwargs: Any) -> Reply:
         with self._lock:
-            return method(self, *args, **kwargs)
+            # A stopped run reopened on the way through must be said, whatever
+            # the tool then answers: "it's gone sticky" bringing a run back to
+            # life with only "Noted." is a silent override, and the rule is
+            # that there are none. One choke point, because eleven reply sites
+            # each remembering to say it is how it got forgotten the first
+            # time. Saved and restored so a serialised call made from inside
+            # another cannot swallow the outer announcement.
+            outer = self._pending_pickup
+            self._pending_pickup = None
+            try:
+                reply = method(self, *args, **kwargs)
+                pickup = self._pending_pickup
+            finally:
+                self._pending_pickup = outer
+            if pickup and isinstance(reply, Reply):
+                return Reply(
+                    speech.joined(f"Back on {pickup}, then", reply.speech),
+                    {**reply.data, "resumed_run": True},
+                )
+            return reply
 
     return serialised
 
@@ -257,6 +290,7 @@ class Engine:
         # fact and not a run: it either becomes a run or it expires.
         self._sessions: dict[str, ResolutionSession] = {}
         self._lock = threading.RLock()
+        self._pending_pickup: str | None = None
         # Somewhere for the Home Assistant layer to hang a listener, so a run
         # advancing can trigger an automation without the core knowing what an
         # automation is. Never used to change what happens, only to report it.
@@ -449,6 +483,7 @@ class Engine:
             run.finished_at = None
             self.store.save_run(run)
             self._record(run, EVENT_RESUMED, step_n=run.current_step)
+            self._pending_pickup = run.reference  # said by whoever answers
             return None  # picked back up; carry on with whatever was asked
         if play.status == "none":
             return Reply("Nothing on the go.", {"status": "nothing_active"})
@@ -483,9 +518,9 @@ class Engine:
             where = ""
             if step:
                 said = speech.say_step(step, self.settings.units)
-                where = f" You were on step {step.n}, {said}."
+                where = f" — you were on step {step.n}, {speech.soften(said)}"
             return Reply(
-                f"{speech.no_shame(run.reference, since)}{where} Carry on?",
+                f"{speech.no_shame(run.reference, since).rstrip('.')}{where}. Carry on?",
                 {
                     "status": "offer_cold",
                     "run_id": run.id,
@@ -533,7 +568,7 @@ class Engine:
             best = local[0]
             if best.kind == "run":
                 run = self.store.get_run(best.id)
-                if run and run.status in (RUN_ACTIVE,):
+                if run and run.status in OPEN_RUN_STATUSES:
                     return self.run_where(user_id=user_id, run_id=run.id)
             said = (
                 f"You've done {best.title} before. Same again, or start fresh?"
@@ -901,9 +936,12 @@ class Engine:
                 procedure = self._procedure(lately)
                 step = procedure.step(lately.current_step)
                 since = elapsed_seconds(lately.finished_at or lately.updated_at)
-                where = f" You were on step {step.n} of {procedure.total_steps}." if step else ""
+                where = (
+                    f", on step {step.n} of {procedure.total_steps}" if step else ""
+                )
                 return Reply(
-                    f"You left {lately.reference} {say_elapsed(since)}.{where} Pick it up?",
+                    f"You left {lately.reference} {say_elapsed(since)}{where} — "
+                    "pick it up?",
                     {
                         "status": "recently_closed",
                         "run_id": lately.id,
@@ -1030,6 +1068,13 @@ class Engine:
         return self.run_where(user_id=user_id, run_id=run.id)
 
     def _pick_run(self, reference: str, runs: Sequence[Run]) -> tuple[Run | None, str]:
+        wanted = normalise(reference)
+        for run in runs:
+            if normalise(run.reference) == wanted:
+                # Saying a run's exact name and being asked "which one?"
+                # because another run's name contains it is a nag, not a
+                # safeguard.
+                return run, ""
         """Match what they called it against what is on the go."""
         said = set(words(reference)) - POSITION_NOISE
         scored = []
@@ -1086,7 +1131,7 @@ class Engine:
             here = speech.say_step(done, self.settings.units) if done else "at the end"
             return Reply(
                 speech.joined(
-                    f"Hold on — I have you on step {run.current_step}",
+                    f"Hold on — I've got you on step {run.current_step}",
                     here,
                     "Did I lose you?",
                 ),
@@ -1155,7 +1200,22 @@ class Engine:
         run = play.run
         assert run is not None
         procedure = self._procedure(run)
-        target, confidence, candidates = self._locate(description, procedure, run.current_step)
+        try:
+            target, confidence, candidates = self._locate(
+                description, procedure, run.current_step
+            )
+        except NoSuchStep as miss:
+            total = procedure.total_steps
+            return Reply(
+                f"There's no step {miss.number} — {run.reference} has "
+                f"{total} step{'' if total == 1 else 's'}.",
+                {"status": "no_such_step", "run_id": run.id, "total_steps": total},
+            )
+        except AtTheStart:
+            return Reply(
+                f"You're already at the start of {run.reference}.",
+                {"status": "at_the_start", "run_id": run.id, "reference": run.reference},
+            )
 
         if target is None:
             options = [f"step {step.n}, {step.said}" for step in candidates[:3]]
@@ -1225,6 +1285,7 @@ class Engine:
             # The gate just reopened a stopped run because of this call — so
             # the stop was the thing being undone, and the job is done. Walking
             # the pointer back as well would undo one thing too many.
+            self._pending_pickup = None  # this reply says it in its own words
             procedure = self._procedure(run)
             step = procedure.step(run.current_step)
             said = (
@@ -1276,11 +1337,34 @@ class Engine:
                 )
             return Reply("Nothing on the go.", {"status": "nothing_active"})
 
+        events = self.store.events(run.id)
         moves = [
             event
-            for event in self.store.events(run.id)
+            for event in events
             if event.kind in (EVENT_ADVANCED, EVENT_REPOSITIONED, EVENT_UNDONE)
         ]
+        reordered = [
+            event
+            for event in events
+            if event.kind == EVENT_AMENDED and event.data.get("reordered")
+        ]
+        if (
+            moves
+            and reordered
+            and (reordered[-1].id or 0) > (moves[-1].id or 0)
+        ):
+            # Every recorded move is numbered in the old order, so walking
+            # back to one of those numbers lands somewhere else entirely —
+            # very possibly on a step already done. Ask instead of guessing.
+            return Reply(
+                "The steps have moved around since — tell me where you want to be.",
+                {
+                    "status": "reordered_since",
+                    "run_id": run.id,
+                    "reference": run.reference,
+                    "step": self._step_data(self._procedure(run).step(run.current_step)),
+                },
+            )
         back_to: int | None = None
         if moves:
             last = moves[-1]
@@ -1354,7 +1438,9 @@ class Engine:
         wants_the_list = _ASKS_WHAT_IS_LEFT.search(normalise(question)) is not None
         # Never an empty line. This is the other place the product went quiet
         # while somebody stood waiting for it.
-        if not answer:
+        if not answer and wants_the_list:
+            said = speech.remaining(remaining_steps, self.settings.units)
+        elif not answer:
             said = (
                 "I can't answer that from what I have. "
                 f"You're on step {step.n} of {procedure.total_steps}."
@@ -1459,9 +1545,10 @@ class Engine:
         self.store.save_run(run)
         self._record(run, EVENT_PAUSED, step_n=run.current_step, text=note)
         step = procedure.step(run.current_step)
-        where = f" You're on step {step.n} of {procedure.total_steps}." if step else ""
+        where = f" at step {step.n} of {procedure.total_steps}" if step else ""
         return Reply(
-            f"Right, {run.reference} is down.{where} Say where were we when you want it.",
+            f"Right, leaving {run.reference}{where}. It'll keep — just ask where "
+            "were we when you're back.",
             {
                 "status": RUN_PAUSED,
                 "run_id": run.id,
@@ -1562,8 +1649,13 @@ class Engine:
 
         affected = self._steps_touching(claim, procedure, run.current_step)
         known = self.store.quirks(subject.id)
-        agreeing = [quirk for quirk in known if similarity(quirk.claim, claim) >= 0.7]
         conflicting = [quirk for quirk in known if self._contradicts(quirk.claim, claim)]
+        agreeing = [
+            quirk
+            for quirk in known
+            if similarity(quirk.claim, claim) >= 0.7
+            and not self._contradicts(quirk.claim, claim)
+        ]
 
         if agreeing:
             quirk = agreeing[0]
@@ -1604,7 +1696,7 @@ class Engine:
         # quiet at the worst moment available: the person has just said the
         # instructions are wrong for the thing in their hands.
         return Reply(
-            f"Nothing on file for the {model or subject.label} about that.",
+            f"Nothing on file for the {model or subject.label} on that.",
             {
                 "status": "unknown",
                 "run_id": run.id,
@@ -1647,7 +1739,12 @@ class Engine:
             # Reordering a load order changes this run, and this subject's
             # quirks if asked, never the procedure other people follow.
             by_number = {step.n: step for step in procedure.steps}
-            wanted = [number for number in reorder if number in by_number]
+            seen: set[int] = set()
+            wanted = [
+                number
+                for number in reorder
+                if number in by_number and not (number in seen or seen.add(number))
+            ]
             wanted += [step.n for step in procedure.steps if step.n not in wanted]
             was_order = [step.n for step in procedure.steps]
             moved: list[Step] = []
@@ -1707,6 +1804,7 @@ class Engine:
                 }
             )
             procedure = self._procedure(run)
+            sources = self.store.run_step_sources(run.id)
 
         if change:
             for number in [step_n, *(also_steps or [])]:
@@ -1714,8 +1812,6 @@ class Engine:
                 if step is None:
                     continue
                 was = step.instruction
-                if number != step_n:
-                    continue
                 step.instruction = change
                 step.speakable = speech.quantity_first(change)
                 self.store.save_run_step(run.id, step, source_n=sources.get(number, number))
@@ -1740,10 +1836,31 @@ class Engine:
                         original.speakable = step.speakable
                         self.store.save_step(template.id, original)
 
-        self._record(run, EVENT_AMENDED, step_n=step_n, text=change or why, scope=scope, why=why)
+        if not amended:
+            total = procedure.total_steps
+            said = (
+                f"There's no step {step_n} — {run.reference} has {total} "
+                f"step{'' if total == 1 else 's'}."
+                if change
+                else "Nothing to change there."
+            )
+            return Reply(
+                said,
+                {"status": "nothing_amended", "run_id": run.id, "total_steps": total},
+            )
+
+        self._record(
+            run,
+            EVENT_AMENDED,
+            step_n=step_n,
+            text=change or why,
+            scope=scope,
+            why=why,
+            reordered=bool(reorder),
+        )
 
         quirk_id = None
-        if scope in (SCOPE_SUBJECT, SCOPE_PROCEDURE) and run.subject_id:
+        if scope in (SCOPE_SUBJECT, SCOPE_PROCEDURE) and run.subject_id and (why or change):
             quirk = self.store.add_quirk(
                 Quirk(
                     subject_id=run.subject_id,
@@ -1751,7 +1868,10 @@ class Engine:
                     learned_from=learned_from,
                     confidence=confidence,
                     material=True,
-                    last_confirmed_at=iso(),
+                    # Only the person's own words confirm a quirk. Stamping
+                    # every tool-made quirk as confirmed meant "read that
+                    # somewhere, never confirmed by you" could never fire.
+                    last_confirmed_at=iso() if learned_from == LEARNED_FROM_USER else None,
                 )
             )
             quirk_id = quirk.id
@@ -1849,8 +1969,6 @@ class Engine:
             return int(hint["duration_s"]), "the programme length"
         if not step.duration_s:
             return None, ""
-        if hint and hint.get("name"):
-            return step.duration_s, "the programme length"
         stated = parse_duration(step.instruction) or parse_duration(step.said)
         if stated and abs(stated - step.duration_s) <= 60:
             return step.duration_s, "what the step says"
@@ -1989,6 +2107,15 @@ class Engine:
         quirk = self.store.get_quirk(quirk_id)
         if quirk is None:
             return Reply("I can't find that note.", {"status": "unknown_quirk"})
+        if quirk.status != QUIRK_ACTIVE:
+            # A stale id from an old payload. Saying "I'll keep that" about a
+            # note already withdrawn keeps nothing, and the person walks away
+            # believing the opposite of the truth.
+            return Reply(
+                "That note's already been withdrawn — tell me what's actually "
+                "the case and I'll keep that instead.",
+                {"status": "quirk_withdrawn", "quirk_id": quirk.id, "claim": quirk.claim},
+            )
         run = self.current_run(user_id, run_id)
 
         if still_right:
@@ -2078,6 +2205,9 @@ class Engine:
             step = procedure.step(int(number.group(1)))
             if step:
                 return step, 1.0, []
+            # They named a step that does not exist. Guessing from the other
+            # words would move them somewhere they never asked to be.
+            raise NoSuchStep(int(number.group(1)))
 
         for word, index in _ORDINALS.items():
             if re.search(rf"\b{word}\b", said):
@@ -2107,6 +2237,7 @@ class Engine:
             earlier = [step for step in procedure.steps if step.n < current]
             if earlier:
                 return earlier[-1], 0.9, []
+            raise AtTheStart
 
         near = [step for score, step in scored if score > 0.3][:3]
         return None, 0.0, near or list(procedure.steps[:3])
@@ -2176,7 +2307,10 @@ class Engine:
         asked = normalise(question)
 
         if "how long" in asked or "how much longer" in asked:
-            if any(term in asked for term in ("been", "so far", "since", "resting", "in for")):
+            elapsed_terms = (
+                "been", "so far", "since", "resting", "in for", "this step", "on this",
+            )
+            if any(term in asked for term in elapsed_terms):
                 def spoken(seconds: float | None) -> str:
                     return say_duration(seconds) if (seconds or 0) >= 60 else "under a minute"
 

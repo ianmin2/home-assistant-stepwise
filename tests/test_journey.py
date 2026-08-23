@@ -138,11 +138,26 @@ class TestADayApart(unittest.TestCase):
         self.assertEqual(quirks[0].claim, "yeast first, salt at the top")
         self.assertEqual(quirks[0].learned_from, const.LEARNED_FROM_WEB)
 
-        # And the next loaf on this machine states it before relying on it.
+        # The next loaf re-checks it out loud before relying on it: the search
+        # confirmed it, but the person never has, and only the person can.
         again = self.engine.run_start(
             planned.data["procedure_id"], reference="tomorrow's loaf", subject_id=machine
         )
         spoken = again.speech
+        for _ in range(3):
+            if "Still right?" in spoken:
+                break
+            spoken = self.engine.run_advance().speech
+        self.assertIn("I read that somewhere", spoken)
+        self.assertIn("Still right?", spoken)
+
+        # "Yes" settles it, and from then on it is simply said, not asked.
+        self.engine.quirk_confirm(quirk_id=quirks[0].id, still_right=True)
+        self.engine.run_finish(outcome="also fine")
+        third = self.engine.run_start(
+            planned.data["procedure_id"], reference="thursday's loaf", subject_id=machine
+        )
+        spoken = third.speech
         for _ in range(3):
             if "On yours, yeast first, salt at the top." in spoken:
                 break

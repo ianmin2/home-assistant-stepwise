@@ -52,6 +52,7 @@ _PAIR_NOISE = {
     "would", "can", "could", "at", "by", "from", "up", "down", "out", "off",
     "over", "but", "or", "if", "so", "then", "there", "here", "what", "when",
     "how", "why", "not", "no", "yes", "just", "now", "next", "step", "about",
+    "some", "any", "soon", "please", "probably", "maybe", "wants",
 }
 
 # Ordinary English that happens to be long enough to look like a term. These
@@ -286,6 +287,10 @@ def resolve_subject(
     )
 
 
+# The endings a known word can wear and still be itself.
+_SUFFIXES = {"s", "es", "ing", "ed", "d", "er", "ers", "ier"}
+
+
 def odd_terms(
     spoken: str, vocabulary: Sequence[str], min_length: int = 5
 ) -> list[tuple[str, list[tuple[str, float]]]]:
@@ -305,6 +310,32 @@ def odd_terms(
         return any(normalise(known) == term or term in normalise(known) for known in vocabulary)
 
     known_words = {word for known in vocabulary for word in words(known)}
+    # The kinds people say — "freezer", "boiler" — are as known as anything in
+    # the library, and inflections of a known word are the word: "changing" is
+    # not a mishearing while "change" sits in the vocabulary, and "houseplants"
+    # is not strange because only "houseplant" is on file.
+    known_words |= {word for phrase in KIND_SYNONYMS for word in words(phrase)}
+
+    def familiar(term: str) -> bool:
+        """A known word wearing an English ending is the known word.
+
+        "Changing" is not a mishearing while "change" is on file, and
+        "houseplants" is not strange because only "houseplant" is. The ending
+        must be a real suffix, though — "panasonik" is one letter off
+        "panasonic" and that is a mishearing, which is the whole trade.
+        """
+        if term in known_words:
+            return True
+        for known in known_words:
+            if len(known) < 4:
+                continue
+            stems = {known}
+            if known.endswith("e"):
+                stems.add(known[:-1])  # change -> chang + ing
+            for stem in stems:
+                if term != stem and term.startswith(stem) and term[len(stem):] in _SUFFIXES:
+                    return True
+        return False
     spoken_words = words(spoken)
     findings: list[tuple[str, list[tuple[str, float]]]] = []
     consumed: set[int] = set()
@@ -318,7 +349,7 @@ def odd_terms(
             continue
         if left in _ORDINARY or right in _ORDINARY:
             continue
-        if left in known_words or right in known_words:
+        if familiar(left) or familiar(right):
             continue
         if index in consumed or index + 1 in consumed:
             continue
@@ -336,19 +367,36 @@ def odd_terms(
     for index, term in enumerate(spoken_words):
         if index in consumed or len(term) < min_length:
             continue
-        if term in _NOISE or term in _PAIR_NOISE or already_known(term):
+        if term in _NOISE or term in _PAIR_NOISE or already_known(term) or familiar(term):
             continue
         if term in _ORDINARY:
             continue  # a common word is a common word, not a mangled one
         # A short word needs a better match before it is queried. "Check" is
         # close enough to plenty of things to be worth asking about, and asking
         # would be wrong every time.
-        threshold = 0.75 if len(term) <= 6 else 0.62
+        # Long everyday words sit surprisingly close to brand names — weather
+        # scores 0.69 against Worcester — while genuine garble lands higher:
+        # wooster 0.82, panasonik 0.94. The line goes between them.
+        threshold = 0.75 if len(term) <= 6 else 0.72
         candidates = phonetic_candidates(term, vocabulary, threshold=threshold)
         if candidates:
             findings.append((term, candidates))
 
-    return findings
+    # Offering a word the person also said is nonsense on its face: "by
+    # changing, did you mean chain?" — the chain is two words later in the
+    # same sentence. Such candidates go; a finding with none left goes whole.
+    heard = set(spoken_words)
+
+    def unsaid(candidate: str) -> bool:
+        parts = [word for word in words(normalise(candidate)) if word not in _NOISE]
+        return not parts or not all(word in heard for word in parts)
+
+    kept: list[tuple[str, list[tuple[str, float]]]] = []
+    for term, candidates in findings:
+        remaining = [(candidate, score) for candidate, score in candidates if unsaid(candidate)]
+        if remaining:
+            kept.append((term, remaining))
+    return kept
 
 
 def confirm_hearing(term: str, candidates: list[tuple[str, float]]) -> str:
@@ -380,8 +428,17 @@ def search_local(
 ) -> list[LocalMatch]:
     """Their own past procedures and runs first. People repeat themselves."""
     found: list[LocalMatch] = []
+    said_words = set(words(spoken)) - _NOISE
     for procedure in procedures:
         score = similarity(spoken, procedure.title)
+        title_words = set(words(procedure.title)) - _NOISE
+        if said_words and title_words:
+            # A long sentence around a short title dilutes plain similarity —
+            # "that rosemary bread we did before" barely resembles "Rosemary
+            # tangzhong loaf" as a string, and a duplicate got planned. What
+            # the words have in common is the better witness.
+            overlap = len(said_words & title_words) / len(title_words)
+            score = max(score, overlap * 0.9 if overlap >= 0.5 else score)
         if score >= threshold:
             found.append(
                 LocalMatch("procedure", procedure.id, procedure.title, score, procedure.updated_at)

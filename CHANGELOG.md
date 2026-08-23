@@ -3,6 +3,68 @@
 All notable changes to Stepwise are recorded here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+The third sweep — the correction flow and the resolution heuristics, attacked
+properly for the first time. Twenty-four findings, all executed before being
+believed; the full account, including three accepted as the right trade, is in
+[SWEEPS.md](SWEEPS.md).
+
+### The correction flow
+
+- **A contradiction can no longer be agreed with.** Stored "the yeast goes in
+  first" and told "the yeast goes in last", it said "You're right, and I have
+  that noted" — and confirmed the opposite. The plainest contradiction is the
+  most similar string, so the agree-branch always won. This was the flagship
+  failing in its most common case.
+- A reorder and a change in one call no longer edit the wrong step — the
+  change was applied against the pre-reorder numbering, and at procedure
+  scope that rewrote the shared template's wrong step, permanently.
+- A repeated number in a reorder no longer duplicates the step. Amending a
+  step that doesn't exist says so instead of "Changed step 9." `also_steps`
+  now does what it always claimed.
+- Only the person's own words confirm a quirk — every quirk made through the
+  tools was born "confirmed by you", so the "read that somewhere, never
+  confirmed" re-check could never fire. It fires now, and the two-day journey
+  test tells that story properly.
+- Confirming a note that was already withdrawn says so, instead of "I'll keep
+  that" while keeping nothing. A reorder with no stated reason no longer
+  stores an empty quirk. A timer only blames "the programme length" when the
+  number actually came from the programme.
+- **The fact no longer outlives the quirk.** Corrections were mirrored into
+  the facts table, where retraction never reached — the retracted claim came
+  back at every run start, forever. One claim, one home.
+- Undo after a reorder asks where you want to be instead of walking back to a
+  step number from the old ordering — very possibly one already done.
+
+### The front door
+
+- A paused run counts as on the go: "guide me through the rosemary loaf" now
+  resumes it instead of answering "there's one on file".
+- The mishearing net stops questioning clean speech: an inflection of a known
+  word is the known word, a candidate the person also said in the same
+  sentence is never offered back to them, and the long-word threshold moved to
+  where the real garble lives ("wooster" 0.82, "weather" 0.69 — the line goes
+  between). Genuine mangles still get caught, all of them, tested as a matrix.
+- "Whats next", no apostrophe, gets the list — and when the list is the
+  answer, the list is what gets said, not "I can't answer that" over a payload
+  that could. "How long on this step" is about this step.
+- "Go back" at step one: "you're already at the start." "Step 40" on a
+  seven-step run: "there are only seven." Saying a run's exact name no longer
+  gets "which one?" because another run's name contains it.
+- Re-asking for a known procedure in your own words ("that rosemary bread we
+  did before") finds it instead of planning a duplicate.
+- A four- or five-word remark from across the kitchen no longer joins a held
+  half-intent; short answers still do.
+
+### And the seams the earlier fixes made
+
+- A stopped run reopened by what you said next now says so — "Back on the
+  rosemary loaf, then. Noted, against step 2." — from one choke point, not
+  eleven reply sites each having to remember.
+- A voice pass over every line the sweeps added, because they'd started
+  sounding like a courier app.
+
 ## [0.2.1] — 2026-08-23
 
 > 0.2.0 was tagged locally, swept twice before being pushed, and superseded by
