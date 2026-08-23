@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import tempfile
+import threading
+import time
 import unittest
 from datetime import timedelta
 from pathlib import Path
@@ -439,6 +441,54 @@ class TestHousekeeping(Kitchen):
             if run.status == const.RUN_DONE
         ]
         self.assertEqual(len(closed), 2)
+
+
+class TestTwoAtOnce(Kitchen):
+    """Two voice satellites, or a person and an automation, in the same second."""
+
+    def test_two_advances_at_once_do_not_skip_a_step(self) -> None:
+        """Without a lock both read step one and both write step two, so one
+        person's "done" is silently swallowed and the log shows two advances
+        at the same place."""
+        run_id = self.start()
+        ready = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        # Hold the first caller between reading the run and writing it back, so
+        # the window the lock exists to close is actually open. Without this the
+        # two calls are too quick to overlap reliably, and the test would pass
+        # whether the lock were there or not.
+        record = self.engine._record
+        held = threading.Event()
+
+        def slow_record(*args: object, **kwargs: object) -> object:
+            if not held.is_set():
+                held.set()
+                time.sleep(0.2)
+            return record(*args, **kwargs)
+
+        self.engine._record = slow_record  # type: ignore[method-assign]
+        self.addCleanup(setattr, self.engine, "_record", record)
+
+        def advance() -> None:
+            try:
+                ready.wait(timeout=5)
+                self.engine.run_advance(run_id=run_id)
+            except BaseException as err:  # pragma: no cover - reported below
+                errors.append(err)
+
+        threads = [threading.Thread(target=advance) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        self.assertEqual(errors, [])
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.current_step, 3, "two advances from step one should reach step three")
+        advanced = [e for e in self.store.events(run_id) if e.kind == const.EVENT_ADVANCED]
+        self.assertEqual([e.step_n for e in advanced], [1, 2])
 
 
 if __name__ == "__main__":

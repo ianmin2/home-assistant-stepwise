@@ -7,8 +7,10 @@ calls that are meant to move the pointer move it.
 
 from __future__ import annotations
 
+import functools
 import re
-from collections.abc import Sequence
+import threading
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -161,6 +163,26 @@ _OPPOSITES = (
 _NEGATIONS = ("no ", "not ", "never ", "isn't", "doesn't", "hasn't", "there's no", "without")
 
 
+def _serialised(method: Callable[..., Reply]) -> Callable[..., Reply]:
+    """One engine call at a time.
+
+    The store locks every statement, but an engine call is a sequence of them:
+    `run_advance` reads the run, records an event, then saves the whole row
+    back. Two of those interleaved both read step three and both write step
+    four, so a step is silently skipped and the log shows two advances at the
+    same place — the exact failure the whole thing exists to prevent. Two voice
+    satellites, or a person and an automation, are enough to cause it. The
+    calls are short and the volume is tiny, so a coarse lock costs nothing.
+    """
+
+    @functools.wraps(method)
+    def serialised(self: Engine, *args: Any, **kwargs: Any) -> Reply:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return serialised
+
+
 class Engine:
     """Everything the tools call. Synchronous; the Home Assistant layer defers it."""
 
@@ -170,6 +192,7 @@ class Engine:
         # Half-formed intents, in memory only. A resolution session is not a
         # fact and not a run: it either becomes a run or it expires.
         self._sessions: dict[str, ResolutionSession] = {}
+        self._lock = threading.RLock()
 
     # Resolution sessions ------------------------------------------------
     def session(self, user_id: str | None = None) -> ResolutionSession | None:
@@ -263,6 +286,7 @@ class Engine:
         return open_runs[0] if open_runs else None
 
     # Resolution --------------------------------------------------------
+    @_serialised
     def resolve_intent(self, spoken: str, user_id: str | None = None) -> Reply:
         """The requirements conversation (section 4). Local library first."""
         subjects = self.store.list_subjects()
@@ -326,6 +350,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def subject_resolve(self, spoken: str, user_id: str | None = None) -> Reply:
         """Turn "my bike" into one subject, or ask which."""
         resolution = resolve_subject(spoken, self.store.list_subjects())
@@ -341,6 +366,7 @@ class Engine:
             session.ask(resolution.question)
         return Reply(resolution.question or "", resolution.as_dict())
 
+    @_serialised
     def subject_save(
         self,
         label: str,
@@ -441,6 +467,7 @@ class Engine:
         return run.id
 
     # Planning ----------------------------------------------------------
+    @_serialised
     def procedure_plan(
         self,
         title: str,
@@ -524,6 +551,7 @@ class Engine:
         return f"the {lowered}" if not lowered.startswith("the ") else lowered
 
     # The run -----------------------------------------------------------
+    @_serialised
     def run_start(
         self,
         procedure_id: str,
@@ -580,6 +608,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def run_where(
         self,
         user_id: str | None = None,
@@ -685,6 +714,7 @@ class Engine:
             return None, f"Which one — {oxford(names, 'or')}?"
         return scored[0][1], ""
 
+    @_serialised
     def run_advance(
         self, note: str | None = None, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
@@ -737,6 +767,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def run_goto(
         self, description: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
@@ -787,6 +818,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def run_ask(
         self, question: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
@@ -823,6 +855,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def run_note(
         self, text: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
@@ -843,6 +876,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def run_finish(
         self,
         outcome: str | None = None,
@@ -896,6 +930,7 @@ class Engine:
         )
 
     # Corrections -------------------------------------------------------
+    @_serialised
     def run_challenge(
         self, claim: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
@@ -1002,6 +1037,7 @@ class Engine:
             },
         )
 
+    @_serialised
     def run_amend(
         self,
         step_n: int = 0,
@@ -1237,6 +1273,7 @@ class Engine:
         return step.duration_s, "the step length"
 
     # Timers --------------------------------------------------------------
+    @_serialised
     def run_timer(
         self,
         seconds: int,
@@ -1336,6 +1373,7 @@ class Engine:
                 return True
         return False
 
+    @_serialised
     def quirk_confirm(
         self,
         quirk_id: str,
