@@ -952,6 +952,65 @@ they were not:
 what was planned, is a work of fiction. Check the release against the code, not
 against the plan.
 
+### And a second sweep, because the first one taught that lesson
+
+Before pushing, the whole 0.2 diff went through another adversarial pass — the
+newest code hardest, since the last-written code is always the least-reviewed.
+It found fourteen more, all fixed and all with regression tests where a test
+can run without Home Assistant:
+
+- **A version-unknown database was bricked, permanently.** An 0.1 database
+  that lost its `meta` row was stamped current with no migrations run: no
+  `touch_seq` column, so every run query raised — and the stamp destroyed the
+  evidence, so no later start would ever look again. Only an empty file is
+  fresh now; tables with no readable version are the oldest known shape and
+  walk the whole ladder. This was the release-blocker of the round.
+- **`run_undo` mutated stopped runs** — the closed-run bug (G7), reintroduced
+  through the reopen path within days of being fixed. It now goes through the
+  same gate as every other mutator, and when the gate reopens a stopped run,
+  the stop *was* the thing undone: the pointer stays put.
+- **A paused run was a dead end for every pointer-moving tool** — the exact
+  "offer nobody can accept" failure the previous commit claimed to have fixed.
+  Touching never clears a paused status, so the offer looped. Offering now
+  resumes, and `run_where` on a paused run — the pick-up the pause message
+  itself promises — resumes too.
+- **`run_ask` with two live runs said "Nothing on the go"**, flatly false,
+  while the other tools correctly asked which. It asks now. And asked about a
+  stopped run, it answers but says so, and writes nothing into the closed
+  record.
+- **A timer could be recorded against a stopped run**; `current_run` no longer
+  hands closed runs to the timer paths or the failure handler.
+- **A mistaken final "done" was unrecoverable** while `run_undo`'s own
+  description promised "that wasn't finished". A run closed as done in the
+  last ten minutes is now this tool's to take back; anything older stays
+  finished, because reopening old finished work is second-guessing.
+- **"Top up the oil" was named "the up the oil"**, spoken in nearly every
+  reply for the life of the run. Phrasal verbs keep their object now.
+- **"Bake at 350 F" was flattened to "350 degrees"** for a metric listener —
+  who hears Celsius, and a fan oven at 350 C is a fire. A scale the listener
+  does not assume is now kept and named, never converted.
+- **The event-bus feature was almost certainly dead on arrival**: the
+  announcer used the async fire API from a worker thread, which Home Assistant
+  refuses — and the engine's own guard would have swallowed the refusal,
+  logging one failure per event and firing nothing. Thread-safe API now.
+- The last silent tool: `run_challenge` with nothing on file returned empty
+  speech at the worst moment available. It now says the README's own line —
+  and a structural test bans `Reply("")` from the engine outright.
+- The tool-schema-vs-engine-signature test that the first sweep *claimed* had
+  shipped now actually exists, and catches a renamed parameter with a named
+  error.
+- A stale migration backup could stand in for the one a rewrite owed; an
+  explicitly wrong `run_id` to `export_run` silently exported some other run;
+  a newline in a note split the markdown table; a note starting `=SUM(` walked
+  into spreadsheets as a live formula; a failed engine record no longer starts
+  a real timer under an apology.
+
+**Attacked and held**, for the record: interrupted-migration resume, repair
+idempotence against thirty fuzzed instructions, 800-thread `touch_seq`
+monotonicity, prune bucketing with paused runs, the newer-version refusal, the
+invented-id fallback, `from_step` after a reopen, and the per-user prompt
+filter.
+
 **Found while doing it, and fixed:**
 
 - Runs were ordered by timestamp alone, so two touched in the same millisecond

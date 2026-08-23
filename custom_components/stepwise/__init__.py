@@ -94,7 +94,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: StepwiseConfigEntry) -> 
 
 
 def _announcer(hass: HomeAssistant) -> Any:
-    """Put every run event on the bus, without the core knowing there is one."""
+    """Put every run event on the bus, without the core knowing there is one.
+
+    The observer fires inside `Engine._record`, which runs in an executor
+    thread — so this must use the thread-safe `bus.fire`, never `async_fire`.
+    From a worker thread Home Assistant raises on the async API, the engine's
+    guard would swallow it, and the entire feature would quietly fire nothing
+    while logging a failure per event.
+    """
 
     def announce(event: RunEvent, run: Run) -> None:
         payload = {
@@ -105,11 +112,11 @@ def _announcer(hass: HomeAssistant) -> Any:
             "text": event.text,
             "at": event.at,
         }
-        hass.bus.async_fire(EVENT_BUS_ANY, payload)
+        hass.bus.fire(EVENT_BUS_ANY, payload)
         if event.kind == EVENT_ADVANCED:
-            hass.bus.async_fire(EVENT_BUS_ADVANCED, payload)
+            hass.bus.fire(EVENT_BUS_ADVANCED, payload)
         elif event.kind == EVENT_FINISHED:
-            hass.bus.async_fire(EVENT_BUS_FINISHED, payload)
+            hass.bus.fire(EVENT_BUS_FINISHED, payload)
 
     return announce
 

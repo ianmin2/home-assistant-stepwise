@@ -551,7 +551,11 @@ flowchart LR
 **No telemetry. No analytics. No crash reporting. No usage statistics. No
 hardcoded endpoint anywhere in the codebase.** Everything lives in one SQLite
 file next to the rest of your Home Assistant data — inspectable, diffable,
-backed up with everything else, and deleted by deleting the file.
+backed up with everything else, and deleted by deleting the file. Two kinds of
+sibling can sit next to it, both yours to keep or delete: `stepwise.db.v*`, a
+copy taken before any upgrade that rewrites data, and `stepwise.db.removed-*`,
+set aside when the integration is removed — removal never silently destroys a
+record of work you actually did.
 
 Nothing is written implicitly either: facts only enter through an explicit tool
 call, which is the single biggest cause of memory rot in projects like this.
@@ -581,7 +585,7 @@ structured detail.
 | `quirk_confirm` | Your answer when a quirk was re-confirmed aloud |
 | `run_undo` | Put the pointer back where it was, and say where that is |
 | `run_timer` | Start a Home Assistant timer, after a yes |
-| `run_finish` | Close, archive, record how it went |
+| `run_finish` | Close a run, or put it down to come back to — done, paused, or stopped. A pause keeps your place and is never pruned |
 
 `run_where()` needing nothing is not laziness. Anything that requires the agent
 to remember an id defeats the entire point — which is why its one optional

@@ -83,6 +83,12 @@ _AFTER_A_PREPOSITION = {
 # "180 C" is a temperature. Said as a unit it becomes a volume.
 _DEGREES = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:°\s*)?([CF])\b")
 
+# Which scale each system takes for granted. A number in the *other* scale must
+# keep its name: "bake at 350 F" flattened to "350 degrees" for a metric
+# listener is heard as 350 Celsius, and a fan oven at 350 C is a fire.
+_NATIVE_SCALE = {UNITS_METRIC: "C", UNITS_IMPERIAL: "F"}
+_SCALE_WORDS = {"C": "Celsius", "F": "Fahrenheit"}
+
 # The tail of a phrase that means the number after it is a setting or a target,
 # not an amount of anything: "bake at 180", "tighten to 25 Nm".
 _CONNECTING = {
@@ -105,9 +111,22 @@ def _unit_here(match: re.Match[str], unit: str) -> bool:
     return rest.split()[0].strip(",:.;").lower() not in _AFTER_A_PREPOSITION
 
 
-def say_degrees(text: str) -> str:
-    """"180 C" -> "180 degrees". Before anything reads C as a unit."""
-    return _DEGREES.sub(lambda m: f"{m.group(1)} degrees", text)
+def say_degrees(text: str, units: str = "") -> str:
+    """"180 C" -> "180 degrees". Before anything reads C as a unit.
+
+    The scale is dropped only when it is the one the listener already assumes.
+    Never converted: a wrong number is worse than a spelled-out scale, so a
+    foreign scale is kept and named — "350 degrees Fahrenheit".
+    """
+    native = _NATIVE_SCALE.get(units)
+
+    def say(match: re.Match[str]) -> str:
+        scale = match.group(2)
+        if native is not None and scale == native:
+            return f"{match.group(1)} degrees"
+        return f"{match.group(1)} degrees {_SCALE_WORDS[scale]}"
+
+    return _DEGREES.sub(say, text)
 
 
 _TRAILING_QUANTITY = re.compile(
@@ -194,7 +213,7 @@ def expand_units(text: str) -> str:
 
 def render(text: str, units: str = "") -> str:
     """A quantity as it should be heard: right system, unit said as a word."""
-    return expand_units(say_degrees(convert_units(text, units)))
+    return expand_units(say_degrees(convert_units(text, units), units))
 
 
 def quantity_first(phrase: str) -> str:

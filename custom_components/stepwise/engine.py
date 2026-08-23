@@ -217,6 +217,10 @@ _VERB_OPENERS = {
 }
 
 
+# The particle a phrasal verb carries before its object: "top up", "take down".
+_PARTICLES = {"up", "down", "off", "out", "on", "in", "over", "away", "back", "apart"}
+
+
 def _count_word(count: int) -> str:
     """"Two things on the go" is wrong when there are three of them."""
     words = {2: "Two", 3: "Three", 4: "Four", 5: "Five"}
@@ -467,7 +471,14 @@ class Engine:
             # still cold and nothing has touched it. The only way out would be
             # the agent quoting an id back, which is the one thing section 8.1
             # says must never be required.
-            self.store.touch_run(run.id)
+            if run.status == RUN_PAUSED:
+                # For a paused run the clock is not the problem — the status
+                # is, and touching alone never clears it, so the offer looped.
+                run.status = RUN_ACTIVE
+                self.store.save_run(run)
+                self._record(run, EVENT_RESUMED, step_n=run.current_step)
+            else:
+                self.store.touch_run(run.id)
             step = self._procedure(run).step(run.current_step)
             where = ""
             if step:
@@ -485,8 +496,14 @@ class Engine:
         return None
 
     def current_run(self, user_id: str | None = None, run_id: str | None = None) -> Run | None:
-        """The run in play, without the question. Reads only."""
-        return self.in_play(user_id, run_id).run
+        """The run in play, without the question. Reads only.
+
+        A stopped run waiting to be offered back is deliberately not it: this
+        is the read used by timers and by the failure handler, and neither may
+        write into, or speak for, a run that is closed.
+        """
+        play = self.in_play(user_id, run_id)
+        return None if play.status == "reopen" else play.run
 
     # Resolution --------------------------------------------------------
     @_serialised
@@ -775,6 +792,12 @@ class Engine:
             # An instruction, not a noun phrase. Name it after the thing it
             # acts on: "descale the kettle" -> "the kettle".
             rest = lowered.split(" ", 1)[1].strip() if " " in lowered else ""
+            # Phrasal verbs carry a particle before the thing: "top up the
+            # oil", "set up the tent". Without this the name came out as "the
+            # up the oil", spoken in nearly every reply for the life of the run.
+            head = rest.split(" ", 1)
+            if head[0] in _PARTICLES and len(head) > 1:
+                rest = head[1].strip()
             if rest.startswith("the ") or rest.startswith("a "):
                 return rest if rest.startswith("the ") else f"the {rest[2:]}"
             return f"the {rest}" if rest else lowered
@@ -926,6 +949,12 @@ class Engine:
                 },
             )
 
+        if run.status == RUN_PAUSED:
+            # "Say where were we when you want it" is what the pause promised,
+            # so this answer is the pick-up, not a preview of one.
+            run.status = RUN_ACTIVE
+            self.store.save_run(run)
+            self._record(run, EVENT_RESUMED, step_n=run.current_step)
         said = sentence(speech.opener(state, run.reference, since, summary))
         if state == COLD and step:
             said = (
@@ -948,6 +977,16 @@ class Engine:
                 "other_runs": [self._run_data(other) for other in open_runs[1:]],
             },
         )
+
+    def _just_finished(self, minutes: int = 10) -> Run | None:
+        """A run closed as done moments ago, still warm enough to take back."""
+        for run in self.store.recent_runs(limit=5):
+            if run.status != RUN_DONE:
+                continue
+            gone = elapsed_seconds(run.finished_at or run.updated_at)
+            if gone is not None and gone <= minutes * 60:
+                return run
+        return None
 
     def _recently_closed(self, reference: str | None = None) -> Run | None:
         """A run stopped in the last few hours, which somebody may want back.
@@ -1173,12 +1212,68 @@ class Engine:
         that can be rewritten is not a record of anything.
         """
         play = self.in_play(user_id, run_id)
-        if play.status == "which":
+        was_stopped = play.status == "reopen"
+        if play.status != "none":
+            # "none" is not settled yet: a run closed as done moments ago is
+            # still this tool's to take back, and the gate's flat "nothing on
+            # the go" would end that conversation before the check.
             asking = self._needs_asking(play)
-            assert asking is not None
-            return asking
+            if asking is not None:
+                return asking
         run = play.run
+        if run is not None and was_stopped:
+            # The gate just reopened a stopped run because of this call — so
+            # the stop was the thing being undone, and the job is done. Walking
+            # the pointer back as well would undo one thing too many.
+            procedure = self._procedure(run)
+            step = procedure.step(run.current_step)
+            said = (
+                f"Right, {run.reference} is back — step {step.n} of "
+                f"{procedure.total_steps}, "
+                f"{speech.soften(speech.say_step(step, self.settings.units))}"
+                if step
+                else f"Right, {run.reference} is back."
+            )
+            return Reply(
+                said,
+                {
+                    "status": "undone",
+                    "run_id": run.id,
+                    "reference": run.reference,
+                    "step": self._step_data(step) if step else None,
+                    "undid": "stopping",
+                },
+            )
         if run is None:
+            # "I didn't mean done", moments after the last "done" closed the
+            # run as finished. Reopening a finished run is normally the tool
+            # second-guessing somebody — but this is the person correcting the
+            # record through the tool that exists for exactly that, so a close
+            # still warm counts as the last thing that moved the pointer.
+            closed = self._just_finished()
+            if closed is not None:
+                closed.status = RUN_ACTIVE
+                closed.finished_at = None
+                self.store.save_run(closed)
+                self._record(closed, EVENT_RESUMED, step_n=closed.current_step)
+                procedure = self._procedure(closed)
+                step = procedure.step(closed.current_step)
+                where = (
+                    f"step {step.n} of {procedure.total_steps}, "
+                    f"{speech.soften(speech.say_step(step, self.settings.units))}"
+                    if step
+                    else "the last step"
+                )
+                return Reply(
+                    f"Right, {closed.reference} isn't finished then — you're on {where}.",
+                    {
+                        "status": "undone",
+                        "run_id": closed.id,
+                        "reference": closed.reference,
+                        "step": self._step_data(step) if step else None,
+                        "was_closed_as": RUN_DONE,
+                    },
+                )
             return Reply("Nothing on the go.", {"status": "nothing_active"})
 
         moves = [
@@ -1227,12 +1322,24 @@ class Engine:
         # Asking is free, and it must never be refused. A cold run is still
         # the run they mean, so answer it and leave the pointer where it is.
         play = self.in_play(user_id, run_id)
+        if play.status == "which":
+            # Two live and neither assumed: "what's left" has two answers, and
+            # "nothing on the go" — which this used to say — was flatly false.
+            asking = self._needs_asking(play)
+            assert asking is not None
+            return asking
         run = play.run
         if run is None:
             return Reply("Nothing on the go.", {"status": "nothing_active"})
+        stopped = play.status == "reopen"
         procedure = self._procedure(run)
         step = procedure.step(run.current_step)
-        self._record(run, EVENT_ASKED, step_n=run.current_step, text=question)
+        if not stopped:
+            # A question about a stopped run is answered, but it is an aside
+            # about a closed record: nothing is written into that record, and
+            # the answer says the run is stopped rather than speaking as if it
+            # were live.
+            self._record(run, EVENT_ASKED, step_n=run.current_step, text=question)
 
         answer, source = self._answer(question, run, procedure, step)
         remaining_steps = [item for item in procedure.steps if item.n > run.current_step]
@@ -1241,6 +1348,7 @@ class Engine:
             for event in self.store.events(run.id, [EVENT_NOTE])
         ]
         # The whole remaining list only goes back when they asked what is left.
+        # (For a stopped run the answer still comes, prefixed with the fact.)
         # Handed it unasked, a model with no line of its own to say reads it
         # out, and "one step at a time" is gone.
         wants_the_list = _ASKS_WHAT_IS_LEFT.search(normalise(question)) is not None
@@ -1255,10 +1363,13 @@ class Engine:
             )
         else:
             said = answer
+        if stopped:
+            said = f"You stopped {run.reference} earlier. {sentence(said)}"
         return Reply(
             said,
             {
                 "status": "answered" if answer else "needs_answer",
+                "run_is_stopped": stopped or None,
                 "answered_from": source,
                 "run_id": run.id,
                 "reference": run.reference,
@@ -1488,8 +1599,12 @@ class Engine:
             )
 
         model = " ".join(part for part in (subject.make, subject.model) if part)
+        # The front page's own transcript: "Nothing on file for the SD-YR2550 —
+        # let me check." This was the last tool that could go quiet, and it went
+        # quiet at the worst moment available: the person has just said the
+        # instructions are wrong for the thing in their hands.
         return Reply(
-            "",
+            f"Nothing on file for the {model or subject.label} about that.",
             {
                 "status": "unknown",
                 "run_id": run.id,

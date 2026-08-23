@@ -591,6 +591,11 @@ class RunTimerTool(StepwiseTool):
         recorded = await self._run(
             hass, "run_timer", user_id=self._user_id(llm_context), **args
         )
+        if recorded.get("status") == "failed":
+            # The engine call itself fell over. Starting a real timer under a
+            # reply that says something has gone wrong would be a timer nobody
+            # knows they have.
+            return recorded
 
         hours, rest = divmod(seconds, 3600)
         minutes, secs = divmod(rest, 60)

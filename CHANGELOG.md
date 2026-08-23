@@ -124,6 +124,32 @@ this closes, and the ones deliberately left open, are set out in
 - Diagnostics, carrying counts and settings and not one word of what a procedure
   is about.
 
+### Found by sweeping the release itself, twice
+
+The first sweep found dead ends and claims the notes made falsely; the second
+found what the first had introduced. All of it is in
+[PLAN_GAPS.md](PLAN_GAPS.md), including what was attacked and held.
+
+- A database that lost its version marker was stamped current with no
+  migrations run and every run query dead — permanently. It now heals: tables
+  with no readable version walk the whole ladder from the oldest known shape.
+- `run_undo` no longer moves the pointer of a stopped run; a paused run is
+  offered once and then carries on rather than looping; asking with two live
+  runs asks which one rather than denying both; a timer can no longer be
+  recorded against a closed run.
+- "I didn't mean done", said within ten minutes of a final "done", gets the
+  run back. Anything older stays finished.
+- "Top up the oil" is called the oil, not "the up the oil". "Bake at 350 F"
+  keeps its Fahrenheit for a metric listener rather than being heard as 350
+  Celsius. A challenge with nothing on file says so instead of going silent —
+  and an engine reply with empty speech is now a test failure, structurally.
+- Run events reach the event bus at all: they were fired with the async API
+  from a worker thread, which Home Assistant refuses and the engine's own
+  guard would have swallowed.
+- A note with a newline no longer splits the exported table; a note starting
+  `=SUM(` reaches a spreadsheet as text, not a formula; an explicit but wrong
+  `run_id` to `export_run` is an error, not somebody else's record.
+
 ### Smaller
 
 - The search response path can be configured. A botched edit meant the field

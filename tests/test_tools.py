@@ -185,6 +185,115 @@ class TestTheSettingsFormMatchesItsLabels(unittest.TestCase):
         self.assertEqual(strings, english)
 
 
+class TestToolSchemasMatchEngineSignatures(unittest.TestCase):
+    """Every tool key must be an engine parameter, or the call dies live.
+
+    `StepwiseTool._run` does `getattr(self.engine, method)(**kwargs)`, so a
+    `vol` key with no matching parameter is a TypeError in the middle of a
+    voice turn — the kind of drift nothing else can catch, because the tool
+    layer needs Home Assistant to import and the engine does not. The 0.2
+    review promised this test and first shipped only the claim of it.
+    """
+
+    @staticmethod
+    def forwarding_tools() -> dict[str, tuple[str, set[str]]]:
+        """Tools that splat tool_args straight into an engine method.
+
+        Returns {tool_class: (engine_method, schema_keys)} for every tool whose
+        async_call passes **tool_input.tool_args to _run. Tools that rename
+        their arguments by hand are checked by their own tests.
+        """
+        tree = ast.parse((INTEGRATION / "llm_tools.py").read_text())
+        found: dict[str, tuple[str, set[str]]] = {}
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            method: str | None = None
+            splats = False
+            keys: set[str] = set()
+            for call in ast.walk(node):
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if isinstance(func, ast.Attribute) and func.attr == "_run" and call.args:
+                    arg = call.args[-1]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        method = arg.value
+                    splats = splats or any(
+                        kw.arg is None
+                        and isinstance(kw.value, ast.Attribute)
+                        and kw.value.attr == "tool_args"
+                        for kw in call.keywords
+                    )
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr in ("Required", "Optional")
+                    and call.args
+                    and isinstance(call.args[0], ast.Constant)
+                ):
+                    keys.add(call.args[0].value)
+            if method and splats:
+                found[node.name] = (method, keys)
+        return found
+
+    def test_every_forwarded_key_is_an_engine_parameter(self) -> None:
+        import inspect
+
+        from context import engine
+
+        forwarding = self.forwarding_tools()
+        self.assertGreater(len(forwarding), 5, "the AST walk found too little to trust")
+        for tool, (method, keys) in forwarding.items():
+            target = getattr(engine.Engine, method, None)
+            self.assertIsNotNone(target, f"{tool} calls engine.{method}, which does not exist")
+            params = set(inspect.signature(target).parameters) - {"self"}
+            strays = keys - params
+            self.assertEqual(
+                strays,
+                set(),
+                f"{tool} offers {sorted(strays)} which engine.{method} does not take — "
+                f"a TypeError on a live voice call",
+            )
+
+    def test_every_required_engine_parameter_is_offered(self) -> None:
+        import inspect
+
+        from context import engine
+
+        for tool, (method, keys) in self.forwarding_tools().items():
+            target = getattr(engine.Engine, method)
+            required = {
+                name
+                for name, param in inspect.signature(target).parameters.items()
+                if name not in ("self", "user_id") and param.default is inspect.Parameter.empty
+            }
+            missing = required - keys
+            self.assertEqual(
+                missing,
+                set(),
+                f"engine.{method} requires {sorted(missing)} and {tool} never sends it",
+            )
+
+
+class TestNothingGoesQuiet(unittest.TestCase):
+    def test_no_engine_reply_is_ever_born_silent(self) -> None:
+        """Section 8.1: every tool returns one speakable line. Three tools
+        shipped returning an empty one, each at a moment somebody had been
+        waiting longest — so the invariant is now structural, not situational.
+        """
+        src = (INTEGRATION / "engine.py").read_text()
+        for node in ast.walk(ast.parse(src)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "Reply"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == ""
+            ):
+                self.fail(f"engine.py:{node.lineno} builds a Reply with empty speech")
+
+
 if __name__ == "__main__":
     unittest.main()
 

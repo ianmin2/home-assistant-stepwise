@@ -20,8 +20,10 @@ procedure
 | `awaits` | `none`, `confirm` (wait to be told), or `timer`. |
 | `settings` | Machine settings: programme, crust, torque, temperature. |
 
-`source` is `web`, `user` or `generated`, and is kept because where a step came
-from decides how loudly it is defended when somebody disputes it.
+`source` is `web`, `user` or `generated`. It is stored and not yet acted on:
+the intent — a `generated` step yielding to the person at once while a `web`
+step cites — is [deferred work](../PLAN_GAPS.md), and this sentence will change
+when it lands. Nothing reads the field today.
 
 ## Speakable steps
 

@@ -646,6 +646,15 @@ class TestItNeverGoesQuiet(Kitchen):
         self.assertIn("step 1", reply.speech)
         self.assertTrue(reply.data["pointer_unchanged"])
 
+
+    def test_a_challenge_with_nothing_on_file_still_says_so(self) -> None:
+        """The last tool that could go quiet, and it went quiet at the worst
+        moment available: "that's wrong for mine"."""
+        run_id = self.start()
+        reply = self.engine.run_challenge("my machine takes the yeast first", run_id=run_id)
+        self.assertTrue(reply.speech.strip())
+        self.assertIn("Nothing on file", reply.speech)
+
     def test_the_whole_list_only_comes_back_when_it_was_asked_for(self) -> None:
         """Handed the remaining steps unasked, a model with no line of its own
         reads them out, and one step at a time is gone."""
@@ -793,6 +802,115 @@ class TestSayingItProperly(Kitchen):
             self.age(run_id, minutes=45)
         self.assertIn("Three things on the go", self.engine.run_where().speech)
         self.assertIn("Three things on the go", self.engine.run_advance().speech)
+
+
+class TestTheSweepFindings(Kitchen):
+    """Defects found by reviewing 0.2 a second time, before pushing it."""
+
+    def test_undo_on_a_stopped_run_reopens_it_rather_than_corrupting_it(self) -> None:
+        """It moved the pointer of a still-closed run: undone speech, status
+        abandoned, an event written into a closed spine."""
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_finish(run_id=run_id, how="stopped")
+        reply = self.engine.run_undo()
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ACTIVE)
+        self.assertEqual(reply.data["status"], "undone")
+        # The stop was the thing undone; the pointer stays where it was left.
+        self.assertEqual(run.current_step, 3)
+        kinds = [e.kind for e in self.store.events(run_id)]
+        self.assertIn(const.EVENT_RESUMED, kinds)
+
+    def test_a_paused_run_is_offered_once_and_then_carries_on(self) -> None:
+        """The offer looped for ever: touching never clears a paused status,
+        so every "yes" came back round as the same question."""
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, how="paused")
+        self.assertEqual(self.engine.run_advance().data["status"], "offer_cold")
+        second = self.engine.run_advance()
+        self.assertEqual(second.data["status"], "advanced")
+
+    def test_where_were_we_on_a_paused_run_is_the_promised_pick_up(self) -> None:
+        """The pause line says "say where were we when you want it" — so that
+        answer must actually resume it, or "done" lands back in the offer."""
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, how="paused")
+        self.engine.run_where()
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ACTIVE)
+        self.assertEqual(self.engine.run_advance().data["status"], "advanced")
+
+    def test_asking_with_two_live_runs_asks_which_rather_than_denying_both(self) -> None:
+        other = self.engine.procedure_plan(
+            "Do the door", [{"instruction": "step one"}, {"instruction": "step two"}]
+        ).data["procedure_id"]
+        door = self.engine.run_start(other, reference="the door").data["run_id"]
+        loaf = self.start()
+        for run_id in (door, loaf):
+            self.age(run_id, minutes=45)
+        reply = self.engine.run_ask("what's left")
+        self.assertEqual(reply.data["status"], "which_run")
+        self.assertIn("Which one", reply.speech)
+
+    def test_asking_about_a_stopped_run_says_so_and_writes_nothing(self) -> None:
+        """It answered as if the run were live, and appended the question to a
+        closed spine."""
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        before = len(self.store.events(run_id))
+        reply = self.engine.run_ask("how long has it been")
+        self.assertIn("You stopped", reply.speech)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ABANDONED)
+        self.assertEqual(len(self.store.events(run_id)), before)
+
+    def test_a_timer_is_never_recorded_against_a_stopped_run(self) -> None:
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        self.engine.timer_started(seconds=600)
+        self.assertEqual(self.store.events(run_id, [const.EVENT_TIMER_STARTED]), [])
+
+    def test_i_didnt_mean_done_gets_a_just_finished_run_back(self) -> None:
+        """The tool's own description promises "that wasn't finished", and the
+        one case where "done" closes the run was unrecoverable."""
+        run_id = self.start()
+        for _ in range(len(LOAF)):
+            self.engine.run_advance(run_id=run_id)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_DONE)
+        reply = self.engine.run_undo()
+        self.assertEqual(reply.data["status"], "undone")
+        self.assertIn("isn't finished", reply.speech)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ACTIVE)
+
+    def test_but_a_run_finished_an_hour_ago_stays_finished(self) -> None:
+        run_id = self.start()
+        for _ in range(len(LOAF)):
+            self.engine.run_advance(run_id=run_id)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        run.finished_at = run.updated_at = util.iso(util.utcnow() - timedelta(hours=1))
+        self.store.save_run(run)
+        self.assertEqual(self.engine.run_undo().data["status"], "nothing_active")
+
+    def test_a_phrasal_verb_title_is_named_after_its_object(self) -> None:
+        for title, expected in [
+            ("Top up the oil", "the oil"),
+            ("Set up the tent", "the tent"),
+            ("Take down the shelf", "the shelf"),
+        ]:
+            reply = self.engine.procedure_plan(title, [{"instruction": "Do it"}])
+            self.assertIn(expected, reply.speech, title)
+            self.assertNotIn("the up", reply.speech, title)
+            self.assertNotIn("the down", reply.speech, title)
 
 
 if __name__ == "__main__":

@@ -279,6 +279,40 @@ class MigrationCase(unittest.TestCase):
         kept = list(Path(path).parent.glob("stepwise.db.v*"))
         self.assertTrue(kept, "the file should be copied aside before data is rewritten")
 
+
+    def test_a_database_that_lost_its_version_heals_rather_than_bricks(self) -> None:
+        """Stamped current with no migrations run, an old database that lost
+        its meta row had no touch_seq column, no speakable repair, and every
+        run query dead — permanently, because the stamp destroyed the evidence.
+        Tables with no readable version are the oldest known shape, not a fresh
+        file."""
+        path = self.a_version_one_database([(1, "Bake at 180", "180 of bake at")])
+        conn = sqlite3.connect(path)
+        conn.execute("DELETE FROM meta")
+        conn.commit()
+        conn.close()
+        opened = store.Store(path).connect()
+        self.addCleanup(opened.close)
+        self.assertEqual(opened.schema_version(), const.SCHEMA_VERSION)
+        columns = {row["name"] for row in opened.conn.execute("PRAGMA table_info(runs)")}
+        self.assertIn("touch_seq", columns)
+        row = opened.conn.execute("SELECT speakable FROM procedure_steps").fetchone()
+        self.assertEqual(row["speakable"], "Bake at 180")
+        opened.open_runs()  # must not raise
+
+    def test_an_existing_backup_is_never_mistaken_for_this_ones(self) -> None:
+        """A stale .vN from an earlier database must not stand in for the
+        backup this migration owes: the file about to be rewritten would have
+        no copy at all, while the name claimed otherwise."""
+        path = self.a_version_one_database([(1, "Bake at 180", "180 of bake at")])
+        stale = Path(f"{path}.v2")
+        stale.write_bytes(b"someone else's database")
+        opened = store.Store(path).connect()
+        self.addCleanup(opened.close)
+        self.assertEqual(stale.read_bytes(), b"someone else's database")
+        fresh = [p for p in Path(path).parent.glob("stepwise.db.v*") if p != stale]
+        self.assertTrue(fresh, "a new backup name should have been taken")
+
     def test_a_database_from_a_newer_stepwise_is_refused(self) -> None:
         """Never open a newer database and misread it. Say so instead."""
         path = self.a_version_one_database([])
@@ -392,6 +426,20 @@ class ExportCase(StoreCase):
         for row in rows:
             cells = row.count("|") - row.count("\\|")
             self.assertEqual(cells, 6, row)
+
+
+    def test_a_note_with_a_newline_does_not_break_the_table(self) -> None:
+        self.engine.run_note("line one\nline two | pipe", run_id=self.run_id)
+        rows = [line for line in self.written().split("\n") if line.startswith("|")]
+        for row in rows:
+            self.assertEqual(row.count("|") - row.count("\\|"), 6, row)
+
+    def test_a_spreadsheet_shows_a_note_and_never_runs_it(self) -> None:
+        self.engine.run_note("=SUM(A1:A9)", run_id=self.run_id)
+        run = self.store.get_run(self.run_id)
+        assert run is not None
+        written = export.as_csv(run, self.store.events(self.run_id))
+        self.assertIn("'=SUM(A1:A9)", written)
 
     def test_the_csv_has_a_row_for_each_thing_that_happened(self) -> None:
         self.engine.run_advance(run_id=self.run_id)

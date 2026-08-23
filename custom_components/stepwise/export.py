@@ -60,6 +60,22 @@ HAPPENED = {
 }
 
 
+def _flat(text: str) -> str:
+    """One line, whatever was dictated. A newline inside a note splits a
+    markdown table row in half and the tail renders as loose prose."""
+    return " ".join(text.split())
+
+
+def _armoured(text: str) -> str:
+    """A spreadsheet must show a note, never run it.
+
+    Cells opening with = + - or @ are formulas to Excel and Sheets, and notes
+    here are dictated by whoever is in the room or written by a model reading
+    a web page. The apostrophe is the spreadsheet convention for "text".
+    """
+    return f"'{text}" if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
 def _clock(stamp: str) -> str:
     moment = parse_iso(stamp)
     return moment.strftime("%Y-%m-%d %H:%M") if moment else stamp
@@ -85,7 +101,7 @@ def rows(run: Run, events: list[RunEvent]) -> list[dict[str, str]]:
             "elapsed": _since_start(run.started_at, event.at),
             "step": str(event.step_n) if event.step_n else "",
             "what": HAPPENED.get(event.kind, event.kind),
-            "detail": (event.text or "").strip(),
+            "detail": _flat((event.text or "").strip()),
         }
         for event in events
     ]
@@ -98,7 +114,9 @@ def as_csv(run: Run, events: list[RunEvent]) -> str:
         buffer, fieldnames=["at", "elapsed", "step", "what", "detail"], lineterminator="\n"
     )
     writer.writeheader()
-    writer.writerows(rows(run, events))
+    writer.writerows(
+        {**row, "detail": _armoured(row["detail"])} for row in rows(run, events)
+    )
     return buffer.getvalue()
 
 
@@ -114,7 +132,7 @@ def as_markdown(
     Deliberately not a narrative. Somebody wanting to know what happened at
     forty minutes in wants a table, and somebody filing it wants a heading.
     """
-    lines: list[str] = [f"# {run.reference}", ""]
+    lines: list[str] = [f"# {_flat(run.reference)}", ""]
     if procedure:
         lines.append(f"**Procedure** — {procedure.title}")
     if subject:
@@ -129,7 +147,7 @@ def as_markdown(
         lines.append(f"**Finished** — {_clock(run.finished_at)} ({took} altogether)")
     lines.append(f"**Status** — {run.status}")
     if run.outcome:
-        lines.append(f"**How it went** — {run.outcome}")
+        lines.append(f"**How it went** — {_flat(run.outcome)}")
     lines.extend(["", "## What happened", ""])
 
     table = rows(run, events)

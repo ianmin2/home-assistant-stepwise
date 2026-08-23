@@ -318,8 +318,15 @@ class Store:
         if not self.path or self.path == ":memory:" or not os.path.exists(self.path):
             return
         spare = f"{self.path}.v{from_version}"
-        if os.path.exists(spare):
-            return  # a previous attempt already kept one; do not overwrite it
+        # A name that exists already belongs to some earlier database — a
+        # crashed attempt, or a different file restored over this path since.
+        # Skipping would leave *this* data with no backup at all while claiming
+        # otherwise, and overwriting would destroy the only copy of the other
+        # one. Neither: take a name nothing holds.
+        suffix = 2
+        while os.path.exists(spare):
+            spare = f"{self.path}.v{from_version}-{suffix}"
+            suffix += 1
         conn = self._conn
         assert conn is not None
         conn.commit()
@@ -347,14 +354,23 @@ class Store:
                 f"Stepwise again, or restore the backup taken before the upgrade."
             )
 
-        fresh = found is None or found == 0
+        # Only a genuinely empty file is fresh. Tables with no readable
+        # version are an old database that lost its meta row — a crash between
+        # steps, a partial restore, tooling that ate it — and stamping that as
+        # current would skip every migration, mark it so no future start ever
+        # looks again, and leave each run query dying on a column that was
+        # never added. Assume the oldest shape instead and walk the whole
+        # ladder: every step is guarded, and the data-rewriting one takes a
+        # backup first, so the worst case of assuming too old is harmless
+        # re-checking.
+        fresh = found == 0
         conn.executescript(SCHEMA)
         if fresh:
             self._stamp(SCHEMA_VERSION)
             conn.commit()
             return
 
-        at = found or 0
+        at = found if found is not None else 1
         for version in sorted(MIGRATIONS):
             if version <= at:
                 continue
@@ -363,7 +379,10 @@ class Store:
                 self._back_up(at)
             try:
                 step.run(conn)
-            except sqlite3.Error as err:
+            except Exception as err:
+                # Not just sqlite errors: a bug in the migration code itself
+                # must reach setup as something it knows to catch, not a raw
+                # traceback with the database half-open.
                 conn.rollback()
                 raise StoreError(f"migration to version {version} failed: {err}") from err
             self._stamp(version)

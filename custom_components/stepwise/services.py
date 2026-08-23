@@ -71,6 +71,11 @@ def async_register(hass: HomeAssistant) -> None:
 
         def gather() -> ServiceResponse:
             run = store.get_run(run_id) if run_id else None
+            if run_id and run is None:
+                # An explicit id that resolves to nothing is a wrong id, and
+                # quietly exporting some other run instead would hand an
+                # automation the wrong record with full confidence.
+                raise ServiceValidationError(f"No run with id {run_id}.")
             if run is None:
                 candidates = store.recent_runs(limit=50)
                 if reference:
