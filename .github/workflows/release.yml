@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  package:
+    name: Check and package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The manifest version must match the tag
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          tag="${tag#v}"
+          manifest=$(jq -r .version custom_components/stepwise/manifest.json)
+          if [ "$tag" != "$manifest" ]; then
+            echo "Tag $tag does not match manifest version $manifest." >&2
+            echo "Bump custom_components/stepwise/manifest.json before tagging." >&2
+            exit 1
+          fi
+          echo "Releasing $manifest"
+
+      - name: Package for people installing by hand
+        run: |
+          cd custom_components/stepwise
+          zip -r ../../stepwise.zip . -x '*__pycache__*'
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" stepwise.zip --clobber

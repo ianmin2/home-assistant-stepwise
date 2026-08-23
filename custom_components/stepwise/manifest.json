@@ -1,0 +1,19 @@
+{
+  "domain": "stepwise",
+  "name": "Stepwise",
+  "after_dependencies": [
+    "conversation",
+    "intent"
+  ],
+  "codeowners": [
+    "@ianmin2"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/ianmin2/stepwise",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/ianmin2/stepwise/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

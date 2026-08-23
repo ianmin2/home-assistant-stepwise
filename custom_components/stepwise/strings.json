@@ -1,0 +1,101 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Stepwise",
+        "description": "Guided step by step procedures. The two thresholds below are the important settings: they decide when a half-finished thing is assumed, named, or offered.",
+        "data": {
+          "hot_minutes": "Assume this run for",
+          "cold_hours": "Offer rather than assume after",
+          "units": "Units",
+          "confirmation_style": "Moving on",
+          "reference_naming": "Naming a run",
+          "memory_backend": "Long term facts",
+          "search_provider": "Looking things up",
+          "search_rest_command": "rest_command to call",
+          "search_response_path": "Path to the result in the response",
+          "archive_keep_per_subject": "Finished runs kept per thing",
+          "search_base_url": "Address of the provider add-on"
+        },
+        "data_description": {
+          "hot_minutes": "Within this, \"next\" means the run in progress, with no preamble.",
+          "cold_hours": "Past this, a run is offered rather than assumed: \"you've a loaf half done, carry on or something new?\"",
+          "confirmation_style": "Waiting to be told is safer when hands are busy.",
+          "search_rest_command": "Only needed when looking things up through a rest_command.",
+          "search_response_path": "For example response.results.0.content",
+          "search_base_url": "Only needed when using the bundled provider add-on, for example http://localhost:8080"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Stepwise is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Stepwise",
+        "menu_options": {
+          "settings": "Settings",
+          "subjects": "Things and their quirks",
+          "runs": "Put a run down"
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "data": {
+          "hot_minutes": "Assume this run for",
+          "cold_hours": "Offer rather than assume after",
+          "units": "Units",
+          "confirmation_style": "Moving on",
+          "reference_naming": "Naming a run",
+          "memory_backend": "Long term facts",
+          "search_provider": "Looking things up",
+          "search_rest_command": "rest_command to call",
+          "search_response_path": "Path to the result in the response",
+          "archive_keep_per_subject": "Finished runs kept per thing",
+          "search_base_url": "Address of the provider add-on"
+        },
+        "data_description": {
+          "hot_minutes": "Within this, \"next\" means the run in progress, with no preamble.",
+          "cold_hours": "Past this, a run is offered rather than assumed.",
+          "search_base_url": "Only needed when using the bundled provider add-on, for example http://localhost:8080"
+        }
+      },
+      "subjects": {
+        "title": "Things",
+        "description": "Everything Stepwise knows you have. Retired ones stay readable.",
+        "data": {
+          "subject_id": "Which one"
+        }
+      },
+      "subject": {
+        "title": "{subject}",
+        "description": "What this one is called, and what has been learned about it. Anything learned here applies to this one thing and never to others of the same sort.",
+        "data": {
+          "label": "What you call it",
+          "make": "Make",
+          "model": "Model",
+          "aliases": "Also called (comma separated)",
+          "retract": "Forget these",
+          "retire": "Retire it"
+        },
+        "data_description": {
+          "retract": "Each one shows where it came from and when it was last confirmed.",
+          "retire": "It stops matching what you say, but its history stays."
+        }
+      },
+      "runs": {
+        "title": "Put a run down",
+        "description": "Closes a run without finishing it. Nothing is lost and nothing is held against you.",
+        "data": {
+          "run_id": "Which run"
+        }
+      }
+    },
+    "abort": {
+      "no_subjects": "Nothing on file yet.",
+      "no_runs": "Nothing on the go."
+    }
+  }
+}

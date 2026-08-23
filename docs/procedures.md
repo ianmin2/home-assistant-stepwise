@@ -1,0 +1,85 @@
+# Procedures
+
+A procedure is a **template**: ordered steps, subject-agnostic where possible.
+A run is one execution of it.
+
+## Schema
+
+```
+procedure
+  id, title, kind, subject_kind, yields, prep_notes, source
+  steps [ { n, instruction, speakable, ingredients[], duration_s, awaits, settings{} } ]
+```
+
+| Field | Purpose |
+|---|---|
+| `instruction` | The step as written. |
+| `speakable` | The step as read aloud. Generated from the instruction if absent. |
+| `ingredients` | What the step consumes or needs. Used to answer "what was the flour weight" and to work out which steps a correction touches. |
+| `duration_s` | How long it takes. Drives timer offers and "how much longer". |
+| `awaits` | `none`, `confirm` (wait to be told), or `timer`. |
+| `settings` | Machine settings: programme, crust, torque, temperature. |
+
+`source` is `web`, `user` or `generated`, and is kept because where a step came
+from decides how loudly it is defended when somebody disputes it.
+
+## Speakable steps
+
+The ear needs the number before the thing when hands are busy, so
+`"wholemeal flour, 200 g"` becomes `"200 grams of wholemeal flour"`, and units
+are expanded so text-to-speech says *grams* rather than *gee*. Anything already
+leading with a quantity is left alone.
+
+If you write `speakable` yourself it is used verbatim.
+
+## A run owns its steps
+
+When a run starts it takes a **copy** of the procedure's steps. Everything that
+happens next — rewording, reordering — happens to the run's copy.
+
+This is what makes amendment scoping honest:
+
+| Scope | Changes this run | Records a quirk | Rewrites the template |
+|---|---|---|---|
+| `run` | yes | no | no |
+| `subject` | yes | yes | no |
+| `procedure` | yes | yes | yes |
+
+Reordering a load order for one bread machine changes that loaf and that
+machine's quirks. It does not change the procedure somebody else is following.
+
+## Timers
+
+A step with a `duration_s`, or a step whose programme the subject knows the
+length of, is offered a timer with its reason attached: *"Shall I set a timer
+for 3 hours 10? That's the programme length."*
+
+Offered, never imposed. `run_timer` starts one of Home Assistant's own voice
+timers, and only after the person has said yes. Timers belong to the device
+being spoken to, so on a device that cannot run them Stepwise says so plainly
+and keeps the elapsed time itself — "how long has that been?" is answerable
+either way.
+
+## Deduplication
+
+Procedures are deduplicated by title and subject kind: planning
+"Rosemary tangzhong loaf" for a `bread_machine` twice replaces the steps rather
+than accumulating a second copy. Runs already in flight are unaffected, because
+they hold their own steps.
+
+## Addressing a procedure
+
+Only one kind of utterance moves a run forward.
+
+| Utterance | Tool | Effect |
+|---|---|---|
+| "Done", "that's in", "next" | `run_advance` | Moves the pointer, timestamped. |
+| "Skip to the second prove", "go back, I've not done the salt" | `run_goto` | Moves the pointer by description, and **says which step it landed on**. |
+| "How many calories is that?" | `run_ask` | Answers. Moves nothing. |
+| "It's gone a bit sticky" | `run_note` | Recorded against the step and the time. |
+
+Positioning matches on what the phrase is *about*: only words the procedure
+itself uses count as evidence, so "go back, I've not done the salt yet" goes to
+the salt rather than back one step. When nothing matches confidently it asks
+instead of jumping, because silently being on a different step from the person
+is the single most damaging failure.
