@@ -1,0 +1,38 @@
+export_run:
+  fields:
+    run_id:
+      required: false
+      example: run_3e669631
+      selector:
+        text:
+    reference:
+      required: false
+      example: the rosemary loaf
+      selector:
+        text:
+
+list_runs:
+  fields:
+    include_finished:
+      required: false
+      default: false
+      selector:
+        boolean:
+
+finish_run:
+  fields:
+    run_id:
+      required: true
+      example: run_3e669631
+      selector:
+        text:
+    outcome:
+      required: false
+      example: came out well
+      selector:
+        text:
+    abandoned:
+      required: false
+      default: false
+      selector:
+        boolean:

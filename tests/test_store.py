@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from context import const, models, store, util
+from context import const, engine, export, models, store, util
 
 
 def a_store() -> store.Store:
@@ -346,6 +346,59 @@ class OrderingCase(StoreCase):
         self.assertEqual(self.store.open_runs()[0].id, first.id)
         self.store.touch_run(second.id, stamp)
         self.assertEqual(self.store.open_runs()[0].id, second.id)
+
+
+class ExportCase(StoreCase):
+    """"A run's history is a lab notebook, and it is already written." It was
+    also unreadable: nothing could get it out of the database."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.engine = engine.Engine(self.store, engine.Settings())
+        self.procedure_id = self.engine.procedure_plan(
+            "Rosemary loaf",
+            [{"instruction": "200 g wholemeal flour"}, {"instruction": "Bake at 180"}],
+        ).data["procedure_id"]
+        self.run_id = self.engine.run_start(
+            self.procedure_id, reference="the rosemary loaf"
+        ).data["run_id"]
+
+    def written(self) -> str:
+        run = self.store.get_run(self.run_id)
+        assert run is not None
+        return export.as_markdown(
+            run,
+            self.store.events(self.run_id),
+            self.store.get_procedure(run.procedure_id),
+            amendments=self.store.amendments(self.run_id),
+        )
+
+    def test_everything_that_happened_is_in_it(self) -> None:
+        self.engine.run_advance(run_id=self.run_id)
+        self.engine.run_note("gone a bit sticky", run_id=self.run_id)
+        self.engine.run_ask("how long has it been", run_id=self.run_id)
+        written = self.written()
+        self.assertIn("the rosemary loaf", written)
+        self.assertIn("gone a bit sticky", written)
+        self.assertIn("how long has it been", written)
+        self.assertIn("Completed step", written)
+
+    def test_the_steps_are_written_as_they_stood(self) -> None:
+        self.assertIn("Bake at 180", self.written())
+
+    def test_a_pipe_in_a_note_does_not_break_the_table(self) -> None:
+        self.engine.run_note("used the 15 mm | not the 10", run_id=self.run_id)
+        rows = [line for line in self.written().split("\n") if line.startswith("|")]
+        for row in rows:
+            cells = row.count("|") - row.count("\\|")
+            self.assertEqual(cells, 6, row)
+
+    def test_the_csv_has_a_row_for_each_thing_that_happened(self) -> None:
+        self.engine.run_advance(run_id=self.run_id)
+        run = self.store.get_run(self.run_id)
+        assert run is not None
+        written = export.as_csv(run, self.store.events(self.run_id))
+        self.assertEqual(len(written.strip().split("\n")), len(self.store.events(self.run_id)) + 1)
 
 
 if __name__ == "__main__":

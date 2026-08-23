@@ -99,5 +99,49 @@
       "no_subjects": "Nothing on file yet.",
       "no_runs": "Nothing on the go."
     }
+  },
+  "services": {
+    "export_run": {
+      "name": "Export a run",
+      "description": "The record of a run — every step, note, question and correction, timestamped — as markdown, CSV and rows. With nothing given, the run last touched.",
+      "fields": {
+        "run_id": {
+          "name": "Run",
+          "description": "The run's id. Leave empty for the one last touched."
+        },
+        "reference": {
+          "name": "Called",
+          "description": "What the run is called, for instance the rosemary loaf."
+        }
+      }
+    },
+    "list_runs": {
+      "name": "List runs",
+      "description": "Every run in progress, with where each one is and how long since it was last touched.",
+      "fields": {
+        "include_finished": {
+          "name": "Include finished",
+          "description": "Also list runs that are over."
+        }
+      }
+    },
+    "finish_run": {
+      "name": "Close a run",
+      "description": "Close a run from an automation or a button. The same act the options page offers.",
+      "fields": {
+        "run_id": {
+          "name": "Run",
+          "description": "The run to close."
+        },
+        "outcome": {
+          "name": "How it went",
+          "description": "Recorded against the run. It is the note that makes the next one better."
+        },
+        "abandoned": {
+          "name": "Stopping rather than finishing",
+          "description": "Recorded as a fact, without judgement."
+        }
+      }
+    }
   }
 }

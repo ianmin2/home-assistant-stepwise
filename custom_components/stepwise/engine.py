@@ -8,6 +8,7 @@ calls that are meant to move the pointer move it.
 from __future__ import annotations
 
 import functools
+import logging
 import re
 import threading
 from collections.abc import Callable, Sequence
@@ -85,6 +86,8 @@ from .util import (
     utcnow,
     words,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -235,6 +238,10 @@ class Engine:
         # fact and not a run: it either becomes a run or it expires.
         self._sessions: dict[str, ResolutionSession] = {}
         self._lock = threading.RLock()
+        # Somewhere for the Home Assistant layer to hang a listener, so a run
+        # advancing can trigger an automation without the core knowing what an
+        # automation is. Never used to change what happens, only to report it.
+        self.observer: Callable[[RunEvent, Run], None] | None = None
 
     # Resolution sessions ------------------------------------------------
     def session(self, user_id: str | None = None) -> ResolutionSession | None:
@@ -310,6 +317,11 @@ class Engine:
         self.store.touch_run(run.id, stamp)
         if run.subject_id:
             self.store.touch_subject(run.subject_id, stamp)
+        if self.observer is not None:
+            try:
+                self.observer(event, run)
+            except Exception:  # a listener must never break the run
+                _LOGGER.exception("Stepwise event listener failed")
         return event
 
     def _procedure(self, run: Run) -> Procedure:
