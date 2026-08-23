@@ -91,9 +91,7 @@ def rows(run: Run, events: list[RunEvent]) -> list[dict[str, str]]:
     ]
 
 
-def as_csv(
-    run: Run, events: list[RunEvent], procedure: Procedure | None = None
-) -> str:
+def as_csv(run: Run, events: list[RunEvent]) -> str:
     """For a spreadsheet. One row per event, no cleverness."""
     buffer = io.StringIO()
     writer = csv.DictWriter(
@@ -184,5 +182,5 @@ def payload(
         "procedure": procedure.title if procedure else None,
         "events": rows(run, events),
         "markdown": as_markdown(run, events, procedure, subject, amendments),
-        "csv": as_csv(run, events, procedure),
+        "csv": as_csv(run, events),
     }

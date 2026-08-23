@@ -716,6 +716,85 @@ class TestPuttingSomethingDown(Kitchen):
         self.assertIsNotNone(self.store.get_run(run_id))
 
 
+class TestAnOfferCanBeAnsweredYes(Kitchen):
+    """An offer nobody can accept is worse than no offer. Both of these came
+    back round as the same question, for ever, because the only way out was the
+    agent quoting an id — the one thing section 8.1 says must never be needed."""
+
+    def test_yes_after_a_cold_offer_carries_on(self) -> None:
+        run_id = self.start()
+        self.age(run_id, minutes=60 * 24)
+        self.assertEqual(self.engine.run_advance().data["status"], "offer_cold")
+        second = self.engine.run_advance()
+        self.assertEqual(second.data["status"], "advanced")
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.current_step, 2)
+
+    def test_yes_after_pick_it_up_reopens_and_carries_on(self) -> None:
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        offered = self.engine.run_where()
+        self.assertEqual(offered.data["status"], "recently_closed")
+        carried = self.engine.run_advance()
+        self.assertEqual(carried.data["status"], "advanced")
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.status, const.RUN_ACTIVE)
+        self.assertEqual(run.current_step, 3)
+
+    def test_a_finished_run_is_still_not_dragged_back(self) -> None:
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, outcome="came out well")
+        self.assertEqual(self.engine.run_advance().data["status"], "nothing_active")
+
+
+class TestSayingItProperly(Kitchen):
+    def test_a_note_says_which_step_it_is_against(self) -> None:
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.assertEqual(
+            self.engine.run_note("gone a bit sticky", run_id=run_id).speech,
+            "Noted, against step 2.",
+        )
+
+    def test_an_instruction_is_not_named_as_though_it_were_a_noun(self) -> None:
+        """"Shall I call it the descale the kettle?" is not a sentence."""
+        reply = self.engine.procedure_plan(
+            "Descale the kettle", [{"instruction": "Fill it with vinegar"}]
+        )
+        self.assertIn("the kettle", reply.speech)
+        self.assertNotIn("the descale", reply.speech)
+
+    def test_a_plain_name_still_gets_its_the(self) -> None:
+        reply = self.engine.procedure_plan(
+            "Rosemary tangzhong loaf", [{"instruction": "Fill it with flour"}]
+        )
+        self.assertIn("the rosemary tangzhong loaf", reply.speech)
+
+    def test_one_step_is_not_one_steps(self) -> None:
+        reply = self.engine.procedure_plan("A one step job", [{"instruction": "Do it"}])
+        self.assertIn("1 step for", reply.speech)
+
+    def test_three_things_are_not_two_things(self) -> None:
+        """The same conversation gave two different counts depending on which
+        tool happened to answer."""
+        references = []
+        for name in ("door", "radiator"):
+            other = self.engine.procedure_plan(
+                f"Do the {name}", [{"instruction": "step one"}, {"instruction": "step two"}]
+            ).data["procedure_id"]
+            references.append(
+                self.engine.run_start(other, reference=f"the {name}").data["run_id"]
+            )
+        loaf = self.start()
+        for run_id in [loaf, *references]:
+            self.age(run_id, minutes=45)
+        self.assertIn("Three things on the go", self.engine.run_where().speech)
+        self.assertIn("Three things on the go", self.engine.run_advance().speech)
+
+
 if __name__ == "__main__":
     unittest.main()
 

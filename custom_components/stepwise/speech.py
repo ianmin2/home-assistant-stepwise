@@ -197,13 +197,15 @@ def render(text: str, units: str = "") -> str:
     return expand_units(say_degrees(convert_units(text, units)))
 
 
-def quantity_first(phrase: str, units: str = "") -> str:
+def quantity_first(phrase: str) -> str:
     """The ear needs the number first when hands are busy.
 
     "wholemeal flour, 200 g" -> "200 g of wholemeal flour". Anything that
     already leads with a number is left alone. Units are neither converted nor
-    spelled out here: that happens when the step is spoken, so changing the
-    units setting changes what is said without rewriting anything stored.
+    spelled out here — that happens when the step is spoken, so changing the
+    units setting changes what is said without rewriting anything stored — and
+    this deliberately takes no units argument, so nothing can come to depend on
+    one it never read.
     """
     phrase = (phrase or "").strip()
     if not phrase or _LEADING_QUANTITY.match(phrase):
@@ -268,6 +270,16 @@ def legacy_quantity_first(phrase: str) -> str:
         return phrase
     lead = f"{amount} {unit}".strip()
     return f"{lead} of {item}" if item else lead
+
+
+def noted(step_n: int | None = None) -> str:
+    """An observation, acknowledged against where it happened.
+
+    "Noted." fifty times over is both dull and a wasted opportunity: the step
+    number is sitting in the reply already, and saying it is a second free
+    check that the pointer is where the person thinks it is.
+    """
+    return f"Noted, against step {step_n}." if step_n else "Noted."
 
 
 def holding_line(spoken: str) -> str:

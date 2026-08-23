@@ -40,6 +40,11 @@ this closes, and the ones deliberately left open, are set out in
   for good. `run_finish` now takes one decision — done, paused or stopped — and
   a run stopped in the last few hours is still found by name and offered back,
   which needs no decision from the model at all.
+- **An offer can be answered yes.** A cold run offered rather than assumed, and
+  a stopped one offered back, are both now picked up by whatever the person says
+  next. Neither needs the agent to quote an id back, which section 8.1 says must
+  never be required — and without that, both offers came round again as the same
+  question indefinitely.
 - **A finished run can no longer be advanced by id**, and an id that is
   invented, closed or somebody else's falls back to the obvious run rather than
   answering "nothing on the go" about a job plainly half done.
@@ -62,10 +67,18 @@ this closes, and the ones deliberately left open, are set out in
 - **Small masses are no longer converted into uselessness.** Seven grams of salt
   was offered as "0.2 ounces", which no scale reads and which rounding put 20%
   out.
-- "an hour 1" is now "an hour and a minute"; "1 and a half minutes" is "a minute
-  and a half". A note says which step it is against. A proposed name survives
-  being said aloud. Acronyms and model numbers keep their case — "ESP32" was
-  becoming "eSP32". "Two things on the go" counts.
+- "an hour 1" is now "an hour and a minute", and "1 and a half minutes" is "a
+  minute and a half".
+- **A note says which step it is against** — "Noted, against step three" rather
+  than "Noted." fifty times over, which is also a second free check that the
+  pointer is where the person thinks it is.
+- **A proposed name survives being said aloud.** "Descale the kettle" was
+  becoming "Shall I call it *the descale the kettle*?" — and that is the phrase
+  the front page teaches. A title that opens with a verb is now named after the
+  thing it acts on.
+- Acronyms and model numbers keep their case — "ESP32" was becoming "eSP32".
+  "Two things on the go" counts, in both places that say it. "1 step", not
+  "1 steps".
 
 ### Never silent, never a traceback
 
@@ -120,6 +133,10 @@ this closes, and the ones deliberately left open, are set out in
   provider was also passing a bare number where aiohttp wants a `ClientTimeout`,
   and reporting the resulting error as "the provider is not reachable".
 - A timer is written into the record once it is genuinely running, not before.
+- The handler that catches a failing tool no longer reads the database from the
+  event loop to do it, which would have blocked Home Assistant in the one place
+  whose whole job is to fail gracefully.
+- `quantity_first` no longer takes a units argument it never read.
 - An options page that tells you what to say to it.
 - Every tool call is timed at debug level.
 

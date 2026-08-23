@@ -205,6 +205,18 @@ class InPlay:
     others: list[Run] = field(default_factory=list)
 
 
+# Titles that open with one of these are instructions, not names: "descale the
+# kettle", "change the chain". Prefixing "the" to them produces "the descale the
+# kettle", which nobody would say.
+_VERB_OPENERS = {
+    "descale", "change", "replace", "clean", "fix", "repair", "swap", "fit",
+    "install", "remove", "strip", "bleed", "drain", "flush", "service", "check",
+    "make", "bake", "build", "wire", "solder", "assemble", "paint", "sand",
+    "convert", "adjust", "tighten", "reset", "prime", "seal", "set", "put",
+    "take", "wash", "empty", "refill", "top", "repot", "prune", "sharpen",
+}
+
+
 def _count_word(count: int) -> str:
     """"Two things on the go" is wrong when there are three of them."""
     words = {2: "Two", 3: "Three", 4: "Four", 5: "Five"}
@@ -351,10 +363,6 @@ class Engine:
             )
         return procedure
 
-    def _current_step(self, run: Run, procedure: Procedure | None = None) -> Step | None:
-        procedure = procedure or self._procedure(run)
-        return procedure.step(run.current_step)
-
     @staticmethod
     def may_touch(run: Run, user_id: str | None) -> bool:
         """Whose run is whose.
@@ -402,6 +410,13 @@ class Engine:
             return InPlay(None, "which", others=open_runs, fell_back=True)
 
         if not open_runs:
+            # "Pick it up?" was offered, and they said yes. There is no tool for
+            # answering a question, so the answer has to be understood by the
+            # tool they would naturally use next — otherwise the offer is a dead
+            # end and the run stays closed.
+            lately = self._recently_closed()
+            if lately is not None:
+                return InPlay(lately, "reopen")
             return InPlay(None, "none")
 
         # Most recently touched wins, which is what makes naming one — "how's
@@ -423,6 +438,14 @@ class Engine:
 
     def _needs_asking(self, play: InPlay) -> Reply | None:
         """The reply to give instead of moving something we are not sure about."""
+        if play.status == "reopen":
+            run = play.run
+            assert run is not None
+            run.status = RUN_ACTIVE
+            run.finished_at = None
+            self.store.save_run(run)
+            self._record(run, EVENT_RESUMED, step_n=run.current_step)
+            return None  # picked back up; carry on with whatever was asked
         if play.status == "none":
             return Reply("Nothing on the go.", {"status": "nothing_active"})
         if play.status == "which":
@@ -438,6 +461,13 @@ class Engine:
             run = play.run
             assert run is not None
             _state, since = self.stickiness(run)
+            # Offering is contact, and section 6 says any contact resets the
+            # clock. Without this the offer never resolves: "carry on?" answered
+            # "yes" comes back round as the same question, because the run is
+            # still cold and nothing has touched it. The only way out would be
+            # the agent quoting an id back, which is the one thing section 8.1
+            # says must never be required.
+            self.store.touch_run(run.id)
             step = self._procedure(run).step(run.current_step)
             where = ""
             if step:
@@ -676,7 +706,7 @@ class Engine:
             ingredients = [str(item) for item in raw.get("ingredients", []) or []]
             spoken = raw.get("speakable")
             if not spoken:
-                spoken = speech.quantity_first(instruction, self.settings.units)
+                spoken = speech.quantity_first(instruction)
             duration = raw.get("duration_s") or parse_duration(instruction)
             awaits = raw.get("awaits") or (AWAITS_TIMER if duration else AWAITS_CONFIRM)
             built.append(
@@ -706,7 +736,8 @@ class Engine:
         self.store.save_procedure(procedure)
 
         proposed = self.propose_reference(procedure, subject)
-        counted = f"{procedure.total_steps} steps for {procedure.title}."
+        total = procedure.total_steps
+        counted = f"{total} step{'' if total == 1 else 's'} for {procedure.title}."
         if self.settings.reference_naming == NAMING_NEVER_ASK:
             said = counted
         elif self.settings.reference_naming == NAMING_ALWAYS_ASK:
@@ -728,10 +759,26 @@ class Engine:
         )
 
     def propose_reference(self, procedure: Procedure, subject: Subject | None = None) -> str:
-        """A name a person would use, never "run 4a2f"."""
+        """A name a person would use, never "run 4a2f".
+
+        "Rosemary loaf" becomes "the rosemary loaf". "Descale the kettle" —
+        which is what the front page tells people to say — must not become "the
+        descale the kettle", so a title that opens with a verb keeps its own
+        shape. The name is the main defence against temporal drift (section 5);
+        it has to be sayable.
+        """
         title = procedure.title.strip()
-        lowered = title[0].lower() + title[1:] if title[:1].isupper() else title
-        return f"the {lowered}" if not lowered.startswith("the ") else lowered
+        lowered = speech.soften(title)
+        if lowered.startswith("the "):
+            return lowered
+        if words(lowered)[:1] and words(lowered)[0] in _VERB_OPENERS:
+            # An instruction, not a noun phrase. Name it after the thing it
+            # acts on: "descale the kettle" -> "the kettle".
+            rest = lowered.split(" ", 1)[1].strip() if " " in lowered else ""
+            if rest.startswith("the ") or rest.startswith("a "):
+                return rest if rest.startswith("the ") else f"the {rest[2:]}"
+            return f"the {rest}" if rest else lowered
+        return f"the {lowered}"
 
     # The run -----------------------------------------------------------
     @_serialised
@@ -870,7 +917,7 @@ class Engine:
         if len(open_runs) > 1 and state != HOT and not reference:
             # Several live runs and none of them assumed: name them, offer.
             names = [other.reference for other in open_runs]
-            said = f"Two things on the go: {oxford(names)}. Which one?"
+            said = f"{_count_word(len(names))} on the go: {oxford(names)}. Which one?"
             return Reply(
                 said,
                 {
@@ -924,6 +971,7 @@ class Engine:
             return picked
         return recent[0]
 
+    @_serialised
     def run_reopen(self, run_id: str | None = None, user_id: str | None = None) -> Reply:
         """Pick a closed run back up, exactly where it was left."""
         run = self.store.get_run(run_id) if run_id else self._recently_closed()
@@ -1244,7 +1292,7 @@ class Engine:
         assert run is not None
         event = self._record(run, EVENT_NOTE, step_n=run.current_step, text=text)
         return Reply(
-            "Noted.",
+            speech.noted(run.current_step),
             {
                 "status": "noted",
                 "run_id": run.id,
@@ -1311,13 +1359,6 @@ class Engine:
                 "total_steps": procedure.total_steps,
             },
         )
-
-    def _resume_if_paused(self, run: Run) -> None:
-        """Any contact picks a paused run back up. Saying so is the tool's job."""
-        if run.status == RUN_PAUSED:
-            run.status = RUN_ACTIVE
-            self.store.save_run(run)
-            self._record(run, EVENT_RESUMED, step_n=run.current_step)
 
     def _close(
         self,
@@ -1561,7 +1602,7 @@ class Engine:
                 if number != step_n:
                     continue
                 step.instruction = change
-                step.speakable = speech.quantity_first(change, self.settings.units)
+                step.speakable = speech.quantity_first(change)
                 self.store.save_run_step(run.id, step, source_n=sources.get(number, number))
                 self.store.add_amendment(
                     Amendment(

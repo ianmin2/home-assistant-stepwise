@@ -83,7 +83,7 @@ class StepwiseTool(llm.Tool):
             return await hass.async_add_executor_job(call)
         except Exception as err:  # the turn must not die silently
             _LOGGER.exception("Stepwise tool %s failed", method)
-            return self._sorry(method, err)
+            return await self._sorry(hass, method, err)
         finally:
             # PLAN section 15 asks how much resolution costs and has never had
             # a number. Debug-level, so it costs nothing until somebody wants it.
@@ -91,7 +91,9 @@ class StepwiseTool(llm.Tool):
                 "Stepwise %s took %.0f ms", method, (time.perf_counter() - started) * 1000
             )
 
-    def _sorry(self, method: str, err: Exception) -> JsonObjectType:
+    async def _sorry(
+        self, hass: HomeAssistant, method: str, err: Exception
+    ) -> JsonObjectType:
         """Fail, and still say where they are.
 
         A tool that raises takes the whole turn with it, and the person — hands
@@ -100,14 +102,23 @@ class StepwiseTool(llm.Tool):
         is tried first and separately: if that fails too, say so plainly rather
         than pretending.
         """
+
+        def look() -> str:
+            run = self.engine.current_run()
+            if run is None:
+                return ""
+            return (
+                f" You were on {run.reference}, step {run.current_step}."
+                " Nothing has moved."
+            )
+
         where = ""
         try:
-            run = self.engine.current_run()
-            if run is not None:
-                where = (
-                    f" You were on {run.reference}, step {run.current_step}."
-                    " Nothing has moved."
-                )
+            # In an executor like every other store call. Reading the database
+            # straight off the event loop would block it — and doing that in
+            # the handler whose whole job is to fail gracefully would be a poor
+            # joke.
+            where = await hass.async_add_executor_job(look)
         except Exception:  # already failing; do not fail louder
             where = ""
         return {

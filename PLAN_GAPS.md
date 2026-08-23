@@ -927,6 +927,31 @@ fixing it), G22, G23, G24, G25, G26, G27, G28, G29, G30, G31 with the test that
 catches it, G32 (events), G33, G36, G38 (the instrumentation), G39 (both cheap
 tests), G41 (stated, not fixed), G44.
 
+**Caught by reviewing this release before tagging it**, and worth recording
+because the first draft of this very list claimed three of them were done when
+they were not:
+
+- **Both new offers were dead ends.** A cold run offered rather than assumed,
+  and a stopped run offered back, each came round again as the same question for
+  ever: nothing touched the run, so nothing changed, and the only way out was
+  the agent quoting an id — the one thing section 8.1 forbids. The cold case was
+  a *regression*: before 0.2 it advanced silently, which was wrong, but it moved.
+  An offer is now contact, and a "yes" lands on the run it was about.
+- **`run_reopen` worked and was reachable from nothing.** No tool, no service,
+  no caller but its own test — so "Pick it up?" could not be answered. Reopening
+  now happens through the tools that already exist rather than a seventeenth one.
+- **G13, G14 and G16 were listed as done and were not.** The helper for G16 was
+  written and never applied at the call site that had the bug, so the same
+  conversation gave two different counts depending on which tool answered. G13
+  and G14 had not been touched at all. All three are done now.
+- The failure handler read the database from the event loop.
+- `run_reopen` mutated a run outside the engine lock — the exact bug class the
+  lock was added for.
+
+**The lesson worth keeping:** a list of what shipped, written from the list of
+what was planned, is a work of fiction. Check the release against the code, not
+against the plan.
+
 **Found while doing it, and fixed:**
 
 - Runs were ordered by timestamp alone, so two touched in the same millisecond
