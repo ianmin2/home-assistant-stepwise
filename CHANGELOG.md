@@ -58,6 +58,14 @@ First release. Phases 1 to 5 of [PLAN.md](PLAN.md).
 - No wording that implies somebody is behind, has abandoned something, or should
   have finished.
 
+### Licence and data
+
+- MIT, with an as-is disclaimer and no liability accepted, in
+  [DISCLAIMER.md](DISCLAIMER.md).
+- No telemetry, analytics or crash reporting of any kind. All state is one
+  SQLite file in the Home Assistant configuration directory. Anything that
+  leaves the machine does so because it was configured to.
+
 ### Configuration and providers
 
 - Config flow with the stickiness thresholds first, plus an options flow for

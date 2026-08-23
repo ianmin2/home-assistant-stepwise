@@ -181,6 +181,35 @@ point. Every rule in the design that can be tested is tested against the bread
 example, because if it works end to end for a tangzhong loaf it works for a
 radiator.
 
+## Licence, liability and data
+
+MIT — see [LICENSE](LICENSE). Use it, fork it, sell it, keep the copyright
+notice.
+
+**It is provided as-is, and no liability is accepted for anything that happens
+as a result of using it.** That matters more here than in most projects,
+because Stepwise reads out steps for *physical* work, and those steps are
+composed by a language model or taken off the web. Check anything that could
+hurt you or damage property against the manufacturer's own instructions, get a
+qualified person for gas, electrical, structural or medical work, and treat your
+own judgement as outranking the software. If a step looks wrong, it is wrong
+until proven otherwise.
+
+**Nothing is collected.** No telemetry, no analytics, no crash reporting, no
+usage statistics, no hardcoded endpoint anywhere in the codebase. Everything
+lives in one SQLite file in your Home Assistant configuration directory, and the
+authors never receive any of it.
+
+Things leave your machine only because you configured them to: your words reach
+whichever conversation agent you attached (which may be a cloud model — that is
+Home Assistant's plumbing and your choice of agent), a search query goes out only
+if you set a search provider, and facts reach a memory integration only if you
+picked one. Those third parties have their own terms, which are outside this
+software's control.
+
+The full statement, including the bits lawyers care about, is in
+[DISCLAIMER.md](DISCLAIMER.md).
+
 ## Credits
 
 Designed by [@ianmin2](https://github.com/ianmin2) — [PLAN.md](PLAN.md) is the
