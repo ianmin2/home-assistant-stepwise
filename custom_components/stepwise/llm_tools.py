@@ -655,7 +655,12 @@ class StepwiseAPI(llm.API):
         lines.append(
             "Wait to be told a step is done before advancing."
             if self.engine.wait_to_be_told
-            else "Any reply that is not a question may be taken as the step being done."
+            else (
+                "A plain acknowledgement may be taken as the step being done. An "
+                "observation, a correction, or anything they are reacting to is not: "
+                "\"it's gone sticky\" and \"it's smoking\" are not questions, and "
+                "neither of them means done."
+            )
         )
 
         if self.search is not None and getattr(self.search, "name", "none") == "none":
