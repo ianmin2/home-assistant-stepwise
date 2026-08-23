@@ -7,6 +7,7 @@ nothing here holds the event loop.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -35,6 +36,8 @@ from .const import (
 from .engine import Engine
 from .memory import MemoryBackend
 from .search import SearchProvider
+
+_LOGGER = logging.getLogger(__name__)
 
 STEP_SCHEMA = vol.Schema(
     {
@@ -74,7 +77,38 @@ class StepwiseTool(llm.Tool):
         def call() -> JsonObjectType:
             return getattr(self.engine, method)(**kwargs).as_dict()
 
-        return await hass.async_add_executor_job(call)
+        try:
+            return await hass.async_add_executor_job(call)
+        except Exception as err:  # the turn must not die silently
+            _LOGGER.exception("Stepwise tool %s failed", method)
+            return self._sorry(method, err)
+
+    def _sorry(self, method: str, err: Exception) -> JsonObjectType:
+        """Fail, and still say where they are.
+
+        A tool that raises takes the whole turn with it, and the person — hands
+        full, halfway through something — gets whatever the agent says when it
+        has nothing. Restating the place is the one thing worth saying, so it
+        is tried first and separately: if that fails too, say so plainly rather
+        than pretending.
+        """
+        where = ""
+        try:
+            run = self.engine.current_run()
+            if run is not None:
+                where = (
+                    f" You were on {run.reference}, step {run.current_step}."
+                    " Nothing has moved."
+                )
+        except Exception:  # already failing; do not fail louder
+            where = ""
+        return {
+            "speech": f"Something's gone wrong at my end.{where}",
+            "status": "failed",
+            "tool": method,
+            "error": str(err),
+            "pointer_unchanged": True,
+        }
 
 
 class ResolveIntentTool(StepwiseTool):

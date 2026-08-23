@@ -54,6 +54,23 @@ _PAIR_NOISE = {
     "how", "why", "not", "no", "yes", "just", "now", "next", "step", "about",
 }
 
+# Ordinary English that happens to be long enough to look like a term. These
+# are never what somebody is naming, so a close phonetic match to one of them
+# is a false alarm — and "talk me through" is the phrase the front page tells
+# people to say, which used to come back as "Dough? Speech-to-text sometimes
+# gives me that as through."
+_ORDINARY = {
+    "through", "though", "although", "against", "around", "across", "before",
+    "after", "while", "until", "unless", "under", "above", "below", "between",
+    "about", "again", "another", "other", "these", "those", "their", "there",
+    "where", "which", "whose", "still", "every", "each", "both", "little",
+    "talk", "walk", "guide", "show", "tell", "start", "finish", "begin",
+    "please", "thanks", "should", "would", "could", "might", "going", "doing",
+    "being", "something", "anything", "everything", "nothing", "myself",
+    "really", "properly", "quickly", "slowly", "first", "second", "third",
+    "ready", "right", "wrong", "better", "worse", "enough",
+}
+
 _SOUND_CLASSES = (
     ("bfpv", "B"),
     ("cgjkqsxz", "K"),
@@ -299,6 +316,8 @@ def odd_terms(
             continue  # "the tangzhong" is not a mishearing of anything
         if left in _PAIR_NOISE or right in _PAIR_NOISE:
             continue
+        if left in _ORDINARY or right in _ORDINARY:
+            continue
         if left in known_words or right in known_words:
             continue
         if index in consumed or index + 1 in consumed:
@@ -319,6 +338,8 @@ def odd_terms(
             continue
         if term in _NOISE or term in _PAIR_NOISE or already_known(term):
             continue
+        if term in _ORDINARY:
+            continue  # a common word is a common word, not a mangled one
         # A short word needs a better match before it is queried. "Check" is
         # close enough to plenty of things to be worth asking about, and asking
         # would be wrong every time.

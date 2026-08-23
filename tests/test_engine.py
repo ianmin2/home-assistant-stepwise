@@ -618,6 +618,44 @@ class TestTwoPeopleOneKitchen(Kitchen):
         self.assertIn("radiator", held.words)
 
 
+class TestItNeverGoesQuiet(Kitchen):
+    """Every tool returns something speakable. The two that did not were the
+    two where somebody had been waiting longest."""
+
+    def test_a_cold_start_says_something_rather_than_nothing(self) -> None:
+        fresh = engine.Engine(self.store, engine.Settings())
+        reply = fresh.resolve_intent("talk me through descaling the kettle")
+        self.assertTrue(reply.speech.strip())
+        self.assertIn("kettle", reply.speech)
+
+    def test_a_cold_start_does_not_read_the_question_back(self) -> None:
+        """With nothing on file, asking "what is it?" at somebody's own
+        sentence is the worst possible first thing to say."""
+        path = Path(tempfile.mkdtemp()) / "empty.db"
+        empty = store.Store(str(path)).connect()
+        self.addCleanup(empty.close)
+        fresh = engine.Engine(empty, engine.Settings())
+        reply = fresh.resolve_intent("talk me through descaling the kettle")
+        self.assertIsNone(reply.data["subject"])
+        self.assertEqual(reply.data["asked_already"], [])
+
+    def test_an_unanswerable_aside_still_says_where_they_are(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_ask("what's the airspeed of a swallow", run_id=run_id)
+        self.assertTrue(reply.speech.strip())
+        self.assertIn("step 1", reply.speech)
+        self.assertTrue(reply.data["pointer_unchanged"])
+
+    def test_the_whole_list_only_comes_back_when_it_was_asked_for(self) -> None:
+        """Handed the remaining steps unasked, a model with no line of its own
+        reads them out, and one step at a time is gone."""
+        run_id = self.start()
+        aside = self.engine.run_ask("how long has this been going", run_id=run_id)
+        self.assertIsNone(aside.data["remaining"])
+        asked = self.engine.run_ask("what's left", run_id=run_id)
+        self.assertTrue(asked.data["remaining"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

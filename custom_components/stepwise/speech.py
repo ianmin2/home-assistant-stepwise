@@ -270,6 +270,23 @@ def legacy_quantity_first(phrase: str) -> str:
     return f"{lead} of {item}" if item else lead
 
 
+def holding_line(spoken: str) -> str:
+    """Something to say while the steps are being worked out.
+
+    Planning a procedure is the longest wait in the whole product — the model
+    has to invent the steps and write them out before anybody hears anything.
+    Saying nothing during it is what makes it feel broken rather than slow.
+    """
+    asked = (spoken or "").strip().rstrip("?.!")
+    for opener in ("talk me through ", "guide me through ", "walk me through ",
+                   "how do i ", "how to ", "show me how to ", "help me "):
+        if asked.lower().startswith(opener):
+            asked = asked[len(opener):]
+            break
+    asked = asked.strip()
+    return f"Right — {asked}. Give me a moment." if asked else "Give me a moment."
+
+
 def joined(*parts: str) -> str:
     """Run spoken fragments together, ending each one properly."""
     said = []

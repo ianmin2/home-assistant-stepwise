@@ -131,5 +131,21 @@ class TestLocalFirst(unittest.TestCase):
         self.assertFalse(fresh.expired(ttl_minutes=30))
 
 
+class TestOrdinaryWordsAreNotMishearings(unittest.TestCase):
+    def test_the_phrase_the_front_page_teaches_is_not_queried(self) -> None:
+        """"Talk me through descaling the kettle" came back as "Dough?
+        Speech-to-text sometimes gives me that as through." That is the first
+        thing the README tells anybody to say."""
+        found = resolution.odd_terms(
+            "talk me through descaling the kettle",
+            ["rosemary tangzhong loaf", "dough", "wholemeal flour"],
+        )
+        self.assertEqual([term for term, _ in found], [])
+
+    def test_a_genuinely_odd_word_is_still_caught(self) -> None:
+        found = resolution.odd_terms("make a yang zoong loaf", ["tangzhong", "loaf"])
+        self.assertTrue(found)
+
+
 if __name__ == "__main__":
     unittest.main()

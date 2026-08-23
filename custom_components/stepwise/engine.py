@@ -172,6 +172,18 @@ def _continues(held: str, spoken: str) -> bool:
     return bool(shared - POSITION_NOISE)
 
 
+# `normalise` turns "what's" into "what s", so the apostrophe never survives
+# to be matched against.
+_ASKS_WHAT_IS_LEFT = re.compile(
+    r"\b(what( s| is)? (left|remaining|next)|how many (more|left|are left)"
+    r"|what else|rest of it|anything else)\b"
+)
+
+
+class StepwiseError(RuntimeError):
+    """Something is wrong that a person needs telling about in a sentence."""
+
+
 @dataclass
 class InPlay:
     """Which run an instruction lands on, and how sure we are.
@@ -315,8 +327,10 @@ class Engine:
     def _template(self, run: Run) -> Procedure:
         """The shared procedure, untouched by any run."""
         procedure = self.store.get_procedure(run.procedure_id)
-        if procedure is None:  # pragma: no cover - only on a hand-edited database
-            raise LookupError(f"procedure {run.procedure_id} is missing")
+        if procedure is None:  # pragma: no cover - a restored or hand-edited database
+            raise StepwiseError(
+                f"the steps for {run.reference} are missing from the database"
+            )
         return procedure
 
     def _current_step(self, run: Run, procedure: Procedure | None = None) -> Step | None:
@@ -468,22 +482,32 @@ class Engine:
                 },
             )
 
-        subject = resolve_subject(spoken, subjects)
         session.target = spoken.strip()
-        if subject.resolved and subject.subject:
+        # With nothing on file there is nothing to resolve against, and asking
+        # "what is it?" back at somebody's own sentence is the worst possible
+        # first thing to say. On an empty database the answer is simply to get
+        # on with it.
+        subject = resolve_subject(spoken, subjects) if subjects else None
+        if subject and subject.resolved and subject.subject:
             session.subject_id = subject.subject.id
             session.loose = subject.loose
-        elif subject.question:
+        elif subject and subject.question:
             session.ask(subject.question)
+
+        # Never hand back an empty line on the longest path in the product.
+        # This is the moment somebody has said something and heard nothing, and
+        # the model, given no line and a payload, will read the payload out.
+        said = speech.holding_line(spoken)
         return Reply(
-            "",
+            said,
             {
                 "status": "needs_planning",
                 "target": spoken.strip(),
-                "subject": subject.as_dict(),
+                "subject": subject.as_dict() if subject else None,
                 "asked_already": list(session.asked),
                 "known_subject_kinds": sorted({item.kind for item in subjects}),
                 "ask_only_what_changes_the_steps": True,
+                "say_this_then_plan": True,
             },
         )
 
@@ -723,7 +747,8 @@ class Engine:
         self._end_session(user_id)  # the intent became a run
 
         first = procedure.step(run.current_step)
-        assert first is not None
+        if first is None:  # pragma: no cover - a procedure with no steps
+            raise StepwiseError(f"{run.reference} has no steps to start on")
         lines: list[str] = []
         stated = self.quirks_to_state(run, first, subject)
         lines.extend(item["speech"] for item in stated)
@@ -1085,8 +1110,23 @@ class Engine:
             {"text": event.text, "at": event.at, "step": event.step_n}
             for event in self.store.events(run.id, [EVENT_NOTE])
         ]
+        # The whole remaining list only goes back when they asked what is left.
+        # Handed it unasked, a model with no line of its own to say reads it
+        # out, and "one step at a time" is gone.
+        wants_the_list = _ASKS_WHAT_IS_LEFT.search(normalise(question)) is not None
+        # Never an empty line. This is the other place the product went quiet
+        # while somebody stood waiting for it.
+        if not answer:
+            said = (
+                "I can't answer that from what I have. "
+                f"You're on step {step.n} of {procedure.total_steps}."
+                if step
+                else "I can't answer that from what I have."
+            )
+        else:
+            said = answer
         return Reply(
-            answer or "",
+            said,
             {
                 "status": "answered" if answer else "needs_answer",
                 "answered_from": source,
@@ -1094,7 +1134,12 @@ class Engine:
                 "reference": run.reference,
                 "pointer_unchanged": True,
                 "step": self._step_data(step) if step else None,
-                "remaining": [self._step_data(item) for item in remaining_steps],
+                "remaining": (
+                    [self._step_data(item) for item in remaining_steps]
+                    if wants_the_list
+                    else None
+                ),
+                "steps_left": len(remaining_steps),
                 "notes": notes,
                 "started": say_elapsed(elapsed_seconds(run.started_at)),
                 "on_this_step": say_elapsed(self._on_step_seconds(run)),
