@@ -200,9 +200,51 @@ Any contact resets the clock, so a job you touch every twenty minutes for nine
 hours stays hot throughout. Several can be live at once; the **reference** —
 "the rosemary loaf", "the landing radiator" — is how they're told apart.
 
+### Timers, when the step says one
+
+Nobody fills in a duration field. They write *"wait 45 minutes for it to
+blister"* — so that is where Stepwise looks. It reads a duration out of the
+wording, in figures or in words, and offers a timer with its reason attached.
+
+| The step says | It offers |
+|---|---|
+| "Wait 45 minutes for it to blister" | *"Shall I set a timer for that?"* |
+| "Leave to dry for an hour" | *"Shall I set a timer for that?"* |
+| "Prove for forty-five minutes" | *"Shall I set a timer for that?"* |
+| "Programme four, medium crust" — and your machine knows programme four | *"Shall I set a timer for 3 hours 10? That's the programme length."* |
+| "Cut 15 mm off the beading", "Torque to 25 Nm", "Add 200 g of filler" | nothing — those are not times |
+
+The reason is what makes an offer correctable. When the number came from
+somewhere you cannot see — the machine's own programme table — it says where it
+came from, so you can say *"no, mine's shorter"*. When the step has just said it
+out loud, repeating it is noise, so it simply points at it.
+
+Timers are Home Assistant's own, and only ever started after a yes.
+
 ## More of the same shape
 
 <details open>
+<summary><b>🍞🎨 &nbsp;Two things at once — bread rising while you paint</b></summary>
+
+<p align="right"><b>Done, it's knocked back and shaped.</b></p>
+<p align="left">Prove for an hour. Shall I set a timer for that?</p>
+<p align="right"><b>Yes. I'll go and do the landing door while that proves.</b></p>
+<p align="left">Timer set for an hour.</p>
+<p align="right"><b>Where was I with the landing door?</b></p>
+<p align="left">On <b>the landing door</b>, you're on step two of five, wait forty-five minutes for the stripper to blister.<br/>Last touched yesterday.</p>
+<p align="right"><b>Right — scraped back. Done.</b></p>
+<p align="left">Neutralise with white spirit and leave to dry for an hour. Shall I set a timer for that?</p>
+<p align="center"><sub>· &nbsp;⏲️ &nbsp;forty minutes later &nbsp;·</sub></p>
+<p align="right"><b>How's the loaf doing?</b></p>
+<p align="left">On <b>the rosemary loaf</b>, you're on step six of nine, prove for an hour.<br/>Last touched forty minutes ago.</p>
+
+Two runs, two clocks, neither one guessing. Each is hot, warm or cold on its own
+elapsed time, and you switch between them by the name you gave them — never an
+id, never a menu. Whatever you say next lands on the one you just named.
+
+</details>
+
+<details>
 <summary><b>🚲 &nbsp;"Change my bike chain" — which bike?</b></summary>
 
 <p align="right"><b>Talk me through changing my bike chain.</b></p>
@@ -216,6 +258,23 @@ Two bicycles are two subjects. A quirk learned about one is **never** applied to
 the other — because a quirk about a derailleur bike, silently applied to a
 singlespeed years later, is worse than having learned nothing. It is
 confidently wrong, mid-instruction, while your hands are covered in oil.
+
+</details>
+
+<details>
+<summary><b>🎨 &nbsp;Stripping a door, where the waiting is the job</b></summary>
+
+<p align="right"><b>Talk me through stripping the paint off the landing door.</b></p>
+<p align="left">Five steps. I'll call it <b>the landing door</b>.<br/><br/>Step one, mask the hinges and lay the dust sheets.</p>
+<p align="right"><b>Done.</b></p>
+<p align="left">Brush the stripper on thickly, working top to bottom.</p>
+<p align="right"><b>Done.</b></p>
+<p align="left">Wait 45 minutes for it to blister. Shall I set a timer for that?</p>
+<p align="right"><b>Go on.</b></p>
+<p align="left">Timer set for 45 minutes.</p>
+
+Nobody wrote a duration field anywhere. The wording said forty-five minutes, so
+that is what it offered.
 
 </details>
 
@@ -415,7 +474,7 @@ structured detail.
 | `subject_save` | Record or amend a thing, including a make and model it asked for |
 | `procedure_plan` | Store the steps and propose a name. Starts nothing |
 | `run_start` | Begin. Returns step one and the reference |
-| `run_where` | Where am I, in which thing, how long since. **Takes no arguments, by design** |
+| `run_where` | Where am I, in which thing, how long since. **Needs nothing to answer.** Optionally takes the *name* of another thing on the go, to switch to it |
 | `run_advance` | Complete this step, return the next. The only tool that moves a run on |
 | `run_goto` | Reposition by description, always reporting where it landed |
 | `run_ask` | An aside. Answers from the procedure, the notes or the clock |
@@ -426,8 +485,9 @@ structured detail.
 | `run_timer` | Start a Home Assistant timer, after a yes |
 | `run_finish` | Close, archive, record how it went |
 
-`run_where()` taking no arguments is not laziness. Anything that requires the
-agent to remember an id defeats the entire point.
+`run_where()` needing nothing is not laziness. Anything that requires the agent
+to remember an id defeats the entire point — which is why its one optional
+argument is a name a person said out loud, and never an id.
 
 </details>
 
@@ -484,6 +544,10 @@ procedures deduplicate.
 - **Three extra tools.** `subject_save`, `quirk_confirm` and `run_timer` exist
   because the design requires asking for a make and model, re-confirming quirks
   and offering timers — none of which work without somewhere to put the answer.
+- **`run_where` has one optional argument.** The design says it takes none, so
+  that nothing has to remember an id. Without a way to name one of two live
+  runs, though, it could ask *"which one?"* and then not act on the answer. The
+  argument is a name a person said, which is what the rule was protecting.
 
 ## Development
 

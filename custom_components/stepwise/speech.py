@@ -19,7 +19,7 @@ from .const import (
     WARM,
 )
 from .models import Step
-from .util import say_duration, say_elapsed
+from .util import parse_duration, say_duration, say_elapsed
 
 # Reading a quantity aloud happens in two moves: convert it to the system the
 # person actually uses, then say the unit as a word rather than a letter.
@@ -175,6 +175,19 @@ def quantity_first(phrase: str, units: str = "") -> str:
     return f"{lead} of {item}" if item else lead
 
 
+def joined(*parts: str) -> str:
+    """Run spoken fragments together, ending each one properly."""
+    said = []
+    for part in parts:
+        part = (part or "").strip()
+        if not part:
+            continue
+        if part[-1] not in ".?!:":
+            part = f"{part}."
+        said.append(part)
+    return " ".join(said)
+
+
 def sentence(text: str) -> str:
     """Capitalise the opening of a spoken line."""
     text = (text or "").strip()
@@ -190,6 +203,8 @@ def say_step(step: Step, units: str = "", prompt: bool = False) -> str:
     """
     said = sentence(render(step.said, units))
     if step.awaits == AWAITS_TIMER and step.duration_s:
+        if parse_duration(step.said):
+            return said  # the step already says how long; do not say it twice
         return f"{said}. That's {say_duration(step.duration_s)}."
     if prompt and step.awaits == AWAITS_CONFIRM:
         # Await explicitly, then stop talking. Never advance on silence.
@@ -222,9 +237,17 @@ def opener(state: str, reference: str, since_seconds: float | None, step_summary
 
 
 def timer_offer(seconds: float | None, because: str) -> str:
-    """Offered, never imposed, and always with the rationale."""
+    """Offered, never imposed, and always with the rationale.
+
+    The rationale is what makes an offer correctable: "three hours ten, because
+    that's the programme length" invites "no, mine's shorter". When the step
+    has just said the number out loud, repeating it is noise rather than
+    rationale, so the offer simply points at it.
+    """
     if not seconds:
         return ""
+    if because == "what the step says":
+        return "Shall I set a timer for that?"
     return f"Shall I set a timer for {say_duration(seconds)}? That's {because}."
 
 

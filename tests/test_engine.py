@@ -676,3 +676,137 @@ class TestResolutionSessions(Kitchen):
         self.assertEqual(len(held.asked), 1)
         self.engine.resolve_intent("make me a yang zoong loaf", user_id="ian")
         self.assertEqual(len(self.engine.session("ian").asked), 1)
+
+
+class TestTimersFromTheWording(Kitchen):
+    """A step that says how long it takes should offer a timer for it.
+
+    Nothing here is about cooking: the wording is read the same way whether it
+    is a prove, a paint stripper or a physio hold.
+    """
+
+    def a_run(self, steps: list[dict]) -> str:
+        procedure = self.engine.procedure_plan("Strip the old paint", steps, subject_kind="door")
+        return self.engine.run_start(
+            procedure.data["procedure_id"], reference="the door"
+        ).data["run_id"]
+
+    def test_a_duration_in_the_instruction_is_read_out_of_it(self) -> None:
+        self.a_run(
+            [
+                {"instruction": "Brush the stripper on thickly"},
+                {"instruction": "Wait 45 minutes for it to blister"},
+            ]
+        )
+        reply = self.engine.run_advance()
+        self.assertEqual(reply.data["timer_offer_seconds"], 2700)
+        self.assertIn("Shall I set a timer for that?", reply.speech)
+
+    def test_a_duration_written_in_words_counts_too(self) -> None:
+        self.a_run(
+            [
+                {"instruction": "Scrape it back"},
+                {"instruction": "Leave to dry for an hour"},
+                {"instruction": "Wait ten minutes, then sand"},
+            ]
+        )
+        self.assertEqual(self.engine.run_advance().data["timer_offer_seconds"], 3600)
+        self.assertEqual(self.engine.run_advance().data["timer_offer_seconds"], 600)
+
+    def test_a_step_that_states_no_time_offers_nothing(self) -> None:
+        self.a_run(
+            [
+                {"instruction": "Mask the hinges"},
+                {"instruction": "Lay the dust sheets"},
+            ]
+        )
+        reply = self.engine.run_advance()
+        self.assertIsNone(reply.data["timer_offer_seconds"])
+        self.assertNotIn("timer", reply.speech.lower())
+
+    def test_a_quantity_is_never_mistaken_for_a_duration(self) -> None:
+        self.a_run(
+            [
+                {"instruction": "Cut 15 mm off the beading"},
+                {"instruction": "Torque to 25 Nm"},
+                {"instruction": "Add 200 g of filler"},
+            ]
+        )
+        for _ in range(2):
+            self.assertIsNone(self.engine.run_advance().data["timer_offer_seconds"])
+
+    def test_the_number_is_not_said_three_times_over(self) -> None:
+        self.a_run(
+            [{"instruction": "Brush it on"}, {"instruction": "Wait 45 minutes"}]
+        )
+        said = self.engine.run_advance().speech
+        self.assertEqual(said.count("45"), 1, said)
+        self.assertIn("Shall I set a timer for that?", said)
+
+    def test_a_length_the_machine_knows_is_offered_with_its_reason(self) -> None:
+        """When the number comes from somewhere they cannot see, say where."""
+        self.engine.subject_save(
+            "the bread machine",
+            "bread_machine",
+            subject_id=self.subject_id,
+            attributes={"programmes": {"4": {"name": "wholemeal", "duration_s": 11400}}},
+        )
+        procedure = self.engine.procedure_plan(
+            "Programme loaf",
+            [
+                {"instruction": "200 g wholemeal flour"},
+                {"instruction": "Programme four, medium crust", "settings": {"programme": 4}},
+            ],
+            subject_id=self.subject_id,
+        )
+        self.engine.run_start(
+            procedure.data["procedure_id"], reference="the loaf", subject_id=self.subject_id
+        )
+        reply = self.engine.run_advance()
+        self.assertIn("Shall I set a timer for 3 hours 10?", reply.speech)
+        self.assertIn("that's the programme length", reply.speech.lower())
+
+
+class TestTwoThingsOnTheGo(Kitchen):
+    """Switching between things, by the name they are called."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.loaf = self.start("the rosemary loaf")
+        painting = self.engine.procedure_plan(
+            "Strip the old paint",
+            [{"instruction": "Brush the stripper on"}, {"instruction": "Wait 45 minutes"}],
+            subject_kind="door",
+        ).data["procedure_id"]
+        self.door = self.engine.run_start(painting, reference="the landing door").data["run_id"]
+
+    def test_the_most_recently_touched_is_the_one_in_play(self) -> None:
+        self.assertEqual(self.engine.run_where().data["run_id"], self.door)
+
+    def test_naming_one_switches_to_it(self) -> None:
+        switched = self.engine.run_where(reference="the rosemary loaf")
+        self.assertEqual(switched.data["run_id"], self.loaf)
+        self.assertIn("wholemeal flour", switched.speech)
+
+    def test_and_what_they_say_next_lands_on_it(self) -> None:
+        self.engine.run_where(reference="the rosemary loaf")
+        self.assertEqual(self.engine.run_advance().data["run_id"], self.loaf)
+        self.assertEqual(self.engine.run_where().data["run_id"], self.loaf)
+
+    def test_a_loose_name_still_finds_it(self) -> None:
+        self.assertEqual(self.engine.run_where(reference="the loaf").data["run_id"], self.loaf)
+        self.assertEqual(self.engine.run_where(reference="the door").data["run_id"], self.door)
+
+    def test_a_name_that_fits_neither_asks_rather_than_guessing(self) -> None:
+        reply = self.engine.run_where(reference="the thing in the shed")
+        self.assertEqual(reply.data["status"], "which_run")
+        self.assertIn("the rosemary loaf", reply.speech)
+        self.assertIn("the landing door", reply.speech)
+
+    def test_each_keeps_its_own_clock(self) -> None:
+        self.age(self.loaf, 90)
+        door = self.engine.run_where(reference="the landing door")
+        self.assertEqual(door.data["state"], const.HOT)
+        warm = self.engine.run_where(reference="the rosemary loaf")
+        self.assertEqual(warm.data["state"], const.WARM)
+        self.assertTrue(warm.speech.startswith("On the rosemary loaf,"))

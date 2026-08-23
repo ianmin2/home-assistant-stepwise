@@ -50,9 +50,19 @@ machine's quirks. It does not change the procedure somebody else is following.
 
 ## Timers
 
-A step with a `duration_s`, or a step whose programme the subject knows the
-length of, is offered a timer with its reason attached: *"Shall I set a timer
-for 3 hours 10? That's the programme length."*
+A step with a `duration_s`, a step whose programme the subject knows the length
+of, **or a step whose wording simply says how long it takes**, is offered a
+timer with its reason attached.
+
+Nobody fills in a duration field. They write "wait 45 minutes for it to
+blister", so that is where Stepwise looks — figures or words, `45 minutes`,
+`an hour`, `forty-five minutes`, `1 hr 30`. Quantities are left alone: `15 mm`,
+`25 Nm` and `200 g` are not times, and a wrong timer is worse than no timer.
+
+When the number came from somewhere the person cannot see, the offer says where
+from — *"Shall I set a timer for 3 hours 10? That's the programme length."* When
+the step just said it out loud, it points at it instead: *"Shall I set a timer
+for that?"*
 
 Offered, never imposed. `run_timer` starts one of Home Assistant's own voice
 timers, and only after the person has said yes. Timers belong to the device
@@ -74,6 +84,7 @@ Only one kind of utterance moves a run forward.
 | Utterance | Tool | Effect |
 |---|---|---|
 | "Done", "that's in", "next" | `run_advance` | Moves the pointer, timestamped. |
+| "How's the loaf doing?" | `run_where` with a reference | Switches to that run and reports it. Whatever comes next lands there. |
 | "Skip to the second prove", "go back, I've not done the salt" | `run_goto` | Moves the pointer by description, and **says which step it landed on**. |
 | "How many calories is that?" | `run_ask` | Answers. Moves nothing. |
 | "It's gone a bit sticky" | `run_note` | Recorded against the step and the time. |

@@ -73,6 +73,7 @@ from .util import (
     iso,
     normalise,
     oxford,
+    parse_duration,
     say_duration,
     say_elapsed,
     slugify,
@@ -466,7 +467,7 @@ class Engine:
             spoken = raw.get("speakable")
             if not spoken:
                 spoken = speech.quantity_first(instruction, self.settings.units)
-            duration = raw.get("duration_s")
+            duration = raw.get("duration_s") or parse_duration(instruction)
             awaits = raw.get("awaits") or (AWAITS_TIMER if duration else AWAITS_CONFIRM)
             built.append(
                 Step(
@@ -562,8 +563,11 @@ class Engine:
         stated = self.quirks_to_state(run, first, subject)
         lines.extend(item["speech"] for item in stated)
         lines.append(speech.say_step(first, self.settings.units, prompt=self.wait_to_be_told))
+        first_timer, first_because = self.timer_for(first, self.subject_hint(first, subject))
+        if first_timer:
+            lines.append(speech.timer_offer(first_timer, first_because))
         return Reply(
-            " ".join(part for part in lines if part),
+            speech.joined(*lines),
             {
                 "run_id": run.id,
                 "reference": run.reference,
@@ -571,17 +575,43 @@ class Engine:
                 "total_steps": procedure.total_steps,
                 "subject": subject.described if subject else None,
                 "quirks_stated": stated,
+                "timer_offer_seconds": first_timer,
+                "timer_because": first_because or None,
             },
         )
 
-    def run_where(self, user_id: str | None = None, run_id: str | None = None) -> Reply:
-        """Where am I, in which thing, and how long since. No arguments, by design."""
+    def run_where(
+        self,
+        user_id: str | None = None,
+        run_id: str | None = None,
+        reference: str | None = None,
+    ) -> Reply:
+        """Where am I, in which thing, and how long since.
+
+        Needs nothing to answer the common case. `reference` is how somebody
+        switches between things that are both on the go — "how's the loaf
+        doing" — and it is a name they said, never an id they had to remember.
+        Naming a run makes it the current one, so whatever they say next lands
+        on it.
+        """
         open_runs = self.store.open_runs(user_id=user_id)
         if run_id:
             run = self.store.get_run(run_id)
             open_runs = [run] if run else []
         if not open_runs:
             return Reply("Nothing on the go.", {"status": "nothing_active", "runs": []})
+
+        if reference:
+            picked, question = self._pick_run(reference, open_runs)
+            if picked is None:
+                return Reply(
+                    question,
+                    {
+                        "status": "which_run",
+                        "runs": [self._run_data(other) for other in open_runs],
+                    },
+                )
+            open_runs = [picked, *[other for other in open_runs if other.id != picked.id]]
 
         run = open_runs[0]
         state, since = self.stickiness(run)
@@ -594,7 +624,7 @@ class Engine:
             else "you're at the end."
         )
 
-        if len(open_runs) > 1 and state != HOT:
+        if len(open_runs) > 1 and state != HOT and not reference:
             # Several live runs and none of them assumed: name them, offer.
             names = [other.reference for other in open_runs]
             said = f"Two things on the go: {oxford(names)}. Which one?"
@@ -629,6 +659,32 @@ class Engine:
             },
         )
 
+    def _pick_run(self, reference: str, runs: Sequence[Run]) -> tuple[Run | None, str]:
+        """Match what they called it against what is on the go."""
+        said = set(words(reference)) - POSITION_NOISE
+        scored = []
+        for run in runs:
+            subject = self.store.get_subject(run.subject_id) if run.subject_id else None
+            names = [run.reference]
+            if subject:
+                names.append(subject.described)
+            best = max(similarity(reference, name) for name in names)
+            # "The loaf" is how somebody refers to "the rosemary loaf", so the
+            # words they did say matter more than the ones they left out.
+            if said:
+                known = {word for name in names for word in words(name)}
+                best = max(best, (len(said & known) / len(said)) * 0.95)
+            scored.append((best, run))
+        scored.sort(key=lambda pair: -pair[0])
+
+        if not scored or scored[0][0] < 0.5:
+            names = [run.reference for run in runs]
+            return None, f"Which one — {oxford(names, 'or')}?"
+        if len(scored) > 1 and scored[0][0] - scored[1][0] < 0.12:
+            names = [run.reference for _, run in scored[:2]]
+            return None, f"Which one — {oxford(names, 'or')}?"
+        return scored[0][1], ""
+
     def run_advance(
         self, note: str | None = None, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
@@ -655,15 +711,14 @@ class Engine:
         said = speech.say_step(nxt, self.settings.units)
         stated = self.quirks_to_state(run, nxt, subject)
         if stated:
-            said = " ".join([*(item["speech"] for item in stated), said])
+            said = speech.joined(*(item["speech"] for item in stated), said)
         if state != HOT:
             said = speech.with_reference(run.reference, said)
         if hint["speech"]:
-            said = f"{said} {hint['speech']}"
-        timer_seconds = nxt.duration_s or hint["duration_s"]
-        if nxt.awaits == AWAITS_TIMER and timer_seconds:
-            because = "the programme length" if hint["name"] else "the step length"
-            said = f"{said} {speech.timer_offer(timer_seconds, because)}"
+            said = speech.joined(said, hint["speech"])
+        timer_seconds, because = self.timer_for(nxt, hint)
+        if timer_seconds:
+            said = speech.joined(said, speech.timer_offer(timer_seconds, because))
 
         return Reply(
             said,
@@ -676,7 +731,8 @@ class Engine:
                 "steps_left": len(following) - 1,
                 "total_steps": procedure.total_steps,
                 "quirks_stated": stated,
-                "timer_offer_seconds": timer_seconds if nxt.awaits == AWAITS_TIMER else None,
+                "timer_offer_seconds": timer_seconds,
+                "timer_because": because or None,
                 "subject_setting": hint["name"],
             },
         )
@@ -1158,6 +1214,27 @@ class Engine:
             "duration_s": int(duration) if duration else None,
             "speech": said,
         }
+
+    def timer_for(
+        self, step: Step | None, hint: dict[str, Any] | None = None
+    ) -> tuple[int | None, str]:
+        """How long this step takes, and where that number came from.
+
+        Always offered with its reason, because "shall I set a timer for three
+        hours ten" invites a correction and "setting a timer" does not.
+        """
+        if step is None:
+            return None, ""
+        if hint and hint.get("duration_s") and not step.duration_s:
+            return int(hint["duration_s"]), "the programme length"
+        if not step.duration_s:
+            return None, ""
+        if hint and hint.get("name"):
+            return step.duration_s, "the programme length"
+        stated = parse_duration(step.instruction) or parse_duration(step.said)
+        if stated and abs(stated - step.duration_s) <= 60:
+            return step.duration_s, "what the step says"
+        return step.duration_s, "the step length"
 
     # Timers --------------------------------------------------------------
     def run_timer(

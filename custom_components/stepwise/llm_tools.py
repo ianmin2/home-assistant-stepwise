@@ -275,14 +275,25 @@ class RunWhereTool(StepwiseTool):
     description = (
         "Where the person is: which run, which step, and how long since they last "
         "touched it. Call this whenever they ask where they were, or say anything "
-        "that assumes you already know. Takes no arguments."
+        "that assumes you already know. Needs nothing to answer. Pass reference "
+        "only to switch to a different thing they are part way through, using the "
+        "name they said for it — never an id. Naming one makes it the current one, "
+        "so what they say next lands on it."
     )
-    parameters = vol.Schema({})
+    parameters = vol.Schema(
+        {
+            vol.Optional(
+                "reference", description="What they called it, e.g. the rosemary loaf"
+            ): str
+        }
+    )
 
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
-        return await self._run(hass, "run_where", user_id=self._user_id(llm_context))
+        return await self._run(
+            hass, "run_where", user_id=self._user_id(llm_context), **tool_input.tool_args
+        )
 
 
 class RunAdvanceTool(StepwiseTool):

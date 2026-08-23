@@ -14,6 +14,14 @@ All notable changes to Stepwise are recorded here. Versions follow
 
 ### Added
 
+- **Timers read out of the wording.** Nobody fills in a duration field; they
+  write "wait 45 minutes for it to blister". Durations are now read from the
+  instruction itself, in figures or words, and offered with their reason.
+  Quantities are left alone, because a wrong timer is worse than no timer.
+- **Switching between things on the go.** `run_where` takes an optional
+  reference — the name a person said, never an id — and naming one makes it the
+  current run, so what they say next lands on it. Leave the bread proving, go
+  and strip a door, come back and ask how the loaf is doing.
 - Telling Stepwise what something is, mid-run, attaches it to that run. The
   usual way this is asked for is a correction on a run that never named a
   subject, and the answer has to land somewhere.
@@ -30,6 +38,11 @@ All notable changes to Stepwise are recorded here. Versions follow
   question than "tangzhong, or Panasonic?"
 - Short and common words are no longer queried unless the match is strong,
   so "check the flour is in" passes without comment.
+- Timestamps are stored to the millisecond. Two runs touched in the same second
+  sorted arbitrarily, and "the one you last touched" is how the right run gets
+  chosen.
+- A step that states its own duration no longer has the number read back three
+  times over.
 
 ## [0.1.0] — 2026-08-23
 

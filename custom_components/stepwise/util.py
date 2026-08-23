@@ -18,12 +18,16 @@ def utcnow() -> datetime:
 
 
 def iso(moment: datetime | None = None) -> str:
-    """Format a moment for storage."""
+    """Format a moment for storage.
+
+    Milliseconds, not seconds: two runs touched in the same second must still
+    sort, because "the one you last touched" is how the right run is chosen.
+    """
     if moment is None:
         moment = utcnow()
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
-    return moment.astimezone(UTC).isoformat(timespec="seconds")
+    return moment.astimezone(UTC).isoformat(timespec="milliseconds")
 
 
 def parse_iso(value: str | None) -> datetime | None:
@@ -112,6 +116,91 @@ def say_duration(seconds: float | None) -> str:
             return f"{minutes} and a half minutes"
         return "a minute" if minutes == 1 else f"{minutes} minutes"
     return f"{secs} seconds"
+
+
+# Durations spoken inside an instruction ---------------------------------
+# "Fry for thirty minutes" should offer a timer even when whoever wrote the
+# step never filled in a duration field. Single-letter units are deliberately
+# not accepted: "15 m" is millimetres as often as it is minutes.
+
+_DURATION_UNITS = {
+    "second": 1, "seconds": 1, "sec": 1, "secs": 1,
+    "minute": 60, "minutes": 60, "min": 60, "mins": 60,
+    "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600,
+}
+
+# People say durations far more often than they write them.
+_NUMBER_WORDS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+    "seventy": 70, "eighty": 80, "ninety": 90,
+    "twenty five": 25, "twenty-five": 25, "thirty five": 35, "thirty-five": 35,
+    "forty five": 45, "forty-five": 45,
+}
+
+_NUMBERS = "|".join(
+    re.escape(word) for word in sorted(_NUMBER_WORDS, key=len, reverse=True)
+)
+
+_DURATION = re.compile(
+    rf"(\d+(?:[.,]\d+)?|{_NUMBERS})\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b",
+    re.IGNORECASE,
+)
+
+
+def _amount(text: str) -> float:
+    cleaned = text.strip().lower()
+    if cleaned in _NUMBER_WORDS:
+        return float(_NUMBER_WORDS[cleaned])
+    return float(cleaned.replace(",", "."))
+
+# Said rather than written. Longest first, so "half an hour" wins over "an hour".
+_WORDED_DURATIONS = (
+    ("three quarters of an hour", 2700),
+    ("quarter of an hour", 900),
+    ("half an hour", 1800),
+    ("an hour and a half", 5400),
+    ("a couple of minutes", 120),
+    ("a few minutes", 180),
+    ("an hour", 3600),
+    ("a minute", 60),
+)
+
+
+def parse_duration(text: str) -> int | None:
+    """Read a duration out of an instruction, or None if it does not state one.
+
+    Conservative on purpose: a wrong timer is worse than no timer, so anything
+    ambiguous is left alone.
+    """
+    if not text:
+        return None
+    lowered = text.lower()
+    for phrase, seconds in _WORDED_DURATIONS:
+        if phrase in lowered:
+            return seconds
+
+    found = [
+        (match.start(), _amount(match.group(1)), match.group(2).lower())
+        for match in _DURATION.finditer(text)
+    ]
+    if not found:
+        return None
+
+    start, amount, unit = found[0]
+    total = amount * _DURATION_UNITS[unit]
+
+    # "an hour and a half", written as "1 hr 30 mins": one duration, not two.
+    if len(found) > 1 and unit.startswith("h"):
+        next_start, next_amount, next_unit = found[1]
+        gap = text[start:next_start]
+        if next_unit.startswith("m") and len(gap) < 16 and "," not in gap:
+            total += next_amount * _DURATION_UNITS[next_unit]
+
+    return int(total) if total > 0 else None
 
 
 # Identifiers -----------------------------------------------------------

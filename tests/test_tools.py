@@ -59,9 +59,15 @@ class TestToolSurface(unittest.TestCase):
     def test_every_tool_in_the_design_exists(self) -> None:
         self.assertEqual(set(self.tools), EXPECTED)
 
-    def test_where_takes_no_arguments_by_design(self) -> None:
+    def test_where_never_needs_an_id_to_answer(self) -> None:
+        """The rule is that nothing may require the agent to remember an id.
+
+        A name the person said is not an id, so switching by reference is
+        allowed; a required argument of any kind is not.
+        """
         source = ast.unparse(self.tools["run_where"])
-        self.assertIn("vol.Schema({})", source)
+        self.assertNotIn("vol.Required", source)
+        self.assertNotIn("run_id", source)
 
     def test_every_tool_tells_the_model_what_it_is_for(self) -> None:
         for name, node in self.tools.items():
