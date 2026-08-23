@@ -599,6 +599,25 @@ class TestWhoseRunIsWhose(Kitchen):
         self.assertEqual(reply.data["status"], "advanced")
 
 
+class TestTwoPeopleOneKitchen(Kitchen):
+    def test_an_unrelated_sentence_does_not_join_somebody_elses(self) -> None:
+        """Two people at one speaker shared a session, so "bleed the landing
+        radiator" and "make a cup of tea" became one string and were resolved
+        together."""
+        self.engine.resolve_intent("talk me through bleeding the landing radiator")
+        self.engine.resolve_intent("make a cup of tea for the neighbours")
+        held = self.engine.session()
+        assert held is not None
+        self.assertNotIn("radiator", held.words)
+
+    def test_a_short_answer_still_finishes_the_thought(self) -> None:
+        self.engine.resolve_intent("talk me through bleeding the landing radiator")
+        self.engine.resolve_intent("the upstairs one")
+        held = self.engine.session()
+        assert held is not None
+        self.assertIn("radiator", held.words)
+
+
 if __name__ == "__main__":
     unittest.main()
 

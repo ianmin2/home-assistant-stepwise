@@ -674,7 +674,8 @@ class StepwiseAPI(llm.API):
         self.memory = memory
 
     async def async_get_api_instance(self, llm_context: llm.LLMContext) -> llm.APIInstance:
-        prompt = await self.hass.async_add_executor_job(self._prompt)
+        user_id = llm_context.context.user_id if llm_context.context else None
+        prompt = await self.hass.async_add_executor_job(self._prompt, user_id)
         return llm.APIInstance(
             api=self,
             api_prompt=prompt,
@@ -682,8 +683,14 @@ class StepwiseAPI(llm.API):
             tools=[tool(self.engine, self.search, self.memory) for tool in TOOLS],
         )
 
-    def _prompt(self) -> str:
-        """The static rules, plus the time and whatever is already in flight."""
+    def _prompt(self, user_id: str | None = None) -> str:
+        """The static rules, plus the time and whatever is already in flight.
+
+        Filtered by whoever is asking, the same way every tool is. Unfiltered,
+        the prompt told one person about another's runs while the tools denied
+        they existed, and the model was left holding two contradictory accounts
+        of what was on the go.
+        """
         now = dt_util.now()
         lines = [PROMPT, f"The time is {now.strftime('%A %H:%M, %-d %B %Y')}."]
         lines.append(
@@ -703,7 +710,11 @@ class StepwiseAPI(llm.API):
                 "what you know rather than guessing."
             )
 
-        live = self.engine.store.open_runs()
+        live = [
+            run
+            for run in self.engine.store.open_runs(user_id=user_id)
+            if self.engine.may_touch(run, user_id)
+        ]
         if live:
             lines.append("Already part done:")
             for run in live[:5]:

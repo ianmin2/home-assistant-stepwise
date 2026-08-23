@@ -165,6 +165,19 @@ _OPPOSITES = (
 _NEGATIONS = ("no ", "not ", "never ", "isn't", "doesn't", "hasn't", "there's no", "without")
 
 
+def _continues(held: str, spoken: str) -> bool:
+    """Whether a new sentence is finishing the old thought or starting a new one.
+
+    An answer to a question the session asked is short, or shares words with
+    what is already held. A whole new request from somebody else across the
+    kitchen usually does neither.
+    """
+    if len(words(spoken)) <= 5:
+        return True
+    shared = set(words(spoken)) & set(words(held))
+    return bool(shared - POSITION_NOISE)
+
+
 @dataclass
 class InPlay:
     """Which run an instruction lands on, and how sure we are.
@@ -230,13 +243,28 @@ class Engine:
         return held
 
     def _session_for(self, spoken: str, user_id: str | None) -> ResolutionSession:
+        """The half-formed intent, per person.
+
+        Two people at one speaker share the unowned key, so an unrelated
+        sentence used to be glued onto somebody else's half-said request —
+        "bleed the landing radiator" and "make a cup of tea" became one string
+        and were resolved together. The short TTL is most of the fix; the rest
+        is that a new sentence which shares nothing with what is held starts
+        again rather than accumulating.
+        """
         key = user_id or ""
         held = self.session(user_id)
         if held is None:
             held = ResolutionSession(words=spoken)
             self._sessions[key] = held
-        elif spoken and spoken not in held.words:
-            held.words = f"{held.words} {spoken}".strip()
+            return held
+        if spoken and spoken not in held.words:
+            if _continues(held.words, spoken):
+                held.words = f"{held.words} {spoken}".strip()
+            else:
+                held = ResolutionSession(words=spoken)
+                self._sessions[key] = held
+                return held
         return held
 
     def _end_session(self, user_id: str | None) -> None:

@@ -397,8 +397,14 @@ class ResolutionSession:
     def answer(self, question: str, reply: str) -> None:
         self.answers[question] = reply
 
-    def expired(self, ttl_minutes: int = 30, now: Any = None) -> bool:
+    # Half an hour was far too long for a speaker in a shared kitchen: a
+    # second person's unrelated sentence was being glued onto the first
+    # person's half-formed intent. Long enough to answer a question, short
+    # enough that somebody else's remark is a new thought.
+    TTL_MINUTES = 4
+
+    def expired(self, ttl_minutes: int | None = None, now: Any = None) -> bool:
         from .util import elapsed_seconds
 
         gone = elapsed_seconds(self.started_at, now or utcnow())
-        return gone is not None and gone > ttl_minutes * 60
+        return gone is not None and gone > (ttl_minutes or self.TTL_MINUTES) * 60
