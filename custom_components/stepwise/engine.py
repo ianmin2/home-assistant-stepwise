@@ -350,8 +350,15 @@ class Engine:
         attributes: dict[str, Any] | None = None,
         subject_id: str | None = None,
         changed: bool = False,
+        run_id: str | None = None,
+        user_id: str | None = None,
     ) -> Reply:
-        """Create or amend one subject. A fork, when the user says it differs."""
+        """Create or amend one subject. A fork, when the user says it differs.
+
+        When it is told what something is in the middle of a run that has no
+        subject yet — which is when it is usually asked — the answer is
+        attached to that run, so the next correction lands on the right thing.
+        """
         existing = self.store.get_subject(subject_id) if subject_id else None
         if existing and not changed:
             # A contradiction is a fork, not an update (section 7). Overwriting
@@ -391,7 +398,11 @@ class Engine:
                 existing.attributes.update(attributes)
             existing.last_seen_at = iso()
             self.store.save_subject(existing)
-            return Reply(f"Noted, {existing.described}.", {"subject_id": existing.id})
+            attached = self._attach_subject(existing, run_id, user_id)
+            return Reply(
+                f"Noted, {existing.described}.",
+                {"subject_id": existing.id, "attached_to_run": attached},
+            )
 
         base = slugify(" ".join(part for part in (make, model) if part) or label, "subject")
         subject = Subject(
@@ -404,7 +415,29 @@ class Engine:
             attributes=dict(attributes or {}),
         )
         self.store.save_subject(subject)
-        return Reply(f"Right, {subject.described}.", {"subject_id": subject.id, "created": True})
+        attached = self._attach_subject(subject, run_id, user_id)
+        return Reply(
+            f"Right, {subject.described}.",
+            {"subject_id": subject.id, "created": True, "attached_to_run": attached},
+        )
+
+    def _attach_subject(
+        self, subject: Subject, run_id: str | None, user_id: str | None
+    ) -> str | None:
+        """Give a live run its subject, if it was started without one."""
+        run = self.current_run(user_id, run_id)
+        if run is None or run.subject_id:
+            return None
+        run.subject_id = subject.id
+        self.store.save_run(run)
+        self._record(
+            run,
+            EVENT_AMENDED,
+            step_n=run.current_step,
+            text=subject.described,
+            attached_subject=subject.id,
+        )
+        return run.id
 
     # Planning ----------------------------------------------------------
     def procedure_plan(
@@ -819,16 +852,31 @@ class Engine:
 
         subject = self.store.get_subject(run.subject_id) if run.subject_id else None
         if subject is None:
+            kind = procedure.subject_kind or procedure.kind
+            thing = kind.replace("_", " ") if kind else "one"
+            known = [
+                item
+                for item in self.store.list_subjects()
+                if not kind or item.kind == kind
+            ]
+            if known:
+                options = oxford([item.described for item in known], "or")
+                asked = f"Which {thing} is this — {options}?"
+            else:
+                # Nothing on file, so ask for the thing itself rather than
+                # offering a choice of nothing.
+                asked = f"Which {thing} is it? The order depends on the model."
             return Reply(
-                "Which one is this, so I note it against the right thing?",
+                asked,
                 {
                     "status": "needs_subject",
                     "run_id": run.id,
                     "claim": claim,
+                    "subject_kind": kind,
                     "candidates": [
-                        {"id": item.id, "label": item.described}
-                        for item in self.store.list_subjects()
+                        {"id": item.id, "label": item.described} for item in known
                     ],
+                    "then": "subject_save, which attaches it to this run",
                 },
             )
 
@@ -945,9 +993,24 @@ class Engine:
             self.store.save_run_steps(run.id, moved)
             for position, step in enumerate(moved, start=1):
                 self.store.save_run_step(run.id, step, source_n=new_sources.get(position))
-            # The pointer follows the step the person is actually on.
-            if run.current_step in by_number:
-                run.current_step = wanted.index(run.current_step) + 1
+
+            # The pointer goes to the first thing still outstanding, which is
+            # not the same as following the step they happened to be on. Told
+            # "yeast goes in first" before doing anything, the answer is step
+            # one, not wherever the water ended up: anything else silently
+            # skips work the person never did.
+            done = {
+                sources.get(step.n, step.n)
+                for step in procedure.steps
+                if step.n < run.current_step
+            }
+            outstanding = [
+                position
+                for position, _ in enumerate(wanted, start=1)
+                if new_sources.get(position) not in done
+            ]
+            was_position = run.current_step
+            run.current_step = outstanding[0] if outstanding else len(wanted)
             self.store.save_run(run)
             self.store.add_amendment(
                 Amendment(
@@ -959,7 +1022,14 @@ class Engine:
                     scope=scope,
                 )
             )
-            amended.append({"reordered_to": wanted})
+            amended.append(
+                {
+                    "reordered_to": wanted,
+                    "was_step": was_position,
+                    "now_step": run.current_step,
+                    "steps_already_done": len(done),
+                }
+            )
             procedure = self._procedure(run)
 
         if change:
@@ -1016,11 +1086,14 @@ class Engine:
         procedure = self._procedure(run)
         current = procedure.step(run.current_step)
         if reorder:
-            said = (
-                f"Reordered. {speech.landed(current, self.settings.units)}"
-                if current
-                else "Reordered."
-            )
+            if current is None:
+                said = "Reordered."
+            elif current.n < was_position:
+                # Say so plainly when the correction sends them backwards.
+                stated = speech.say_step(current, self.settings.units)
+                said = f"Reordered. Back to step {current.n}, {stated}"
+            else:
+                said = f"Reordered. {speech.landed(current, self.settings.units)}"
         elif current and current.n == step_n:
             said = f"Changed. {speech.say_step(current, self.settings.units)}"
         else:

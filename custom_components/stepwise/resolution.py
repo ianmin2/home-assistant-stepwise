@@ -43,6 +43,17 @@ _NOISE = {
     "with", "for", "to", "of", "and", "it", "its", "using", "use",
 }
 
+# Filler that speech-to-text is good at, so a pair containing one of these is
+# not a word broken in two: it is a word and some scaffolding.
+_PAIR_NOISE = {
+    "is", "are", "was", "were", "be", "been", "am", "i", "im", "you", "your",
+    "me", "we", "they", "do", "does", "did", "get", "got", "make", "made",
+    "take", "check", "want", "need", "put", "has", "have", "had", "will",
+    "would", "can", "could", "at", "by", "from", "up", "down", "out", "off",
+    "over", "but", "or", "if", "so", "then", "there", "here", "what", "when",
+    "how", "why", "not", "no", "yes", "just", "now", "next", "step", "about",
+}
+
 _SOUND_CLASSES = (
     ("bfpv", "B"),
     ("cgjkqsxz", "K"),
@@ -85,9 +96,18 @@ def similarity(left: str, right: str) -> float:
 
 
 def phonetic_candidates(
-    term: str, vocabulary: Iterable[str], limit: int = 3, threshold: float = 0.62
+    term: str,
+    vocabulary: Iterable[str],
+    limit: int = 3,
+    threshold: float = 0.62,
+    margin: float = 0.08,
 ) -> list[tuple[str, float]]:
-    """Best guesses at what an odd-sounding term was meant to be."""
+    """Best guesses at what an odd-sounding term was meant to be.
+
+    Only guesses close to the best one are kept. "Tangzhong?" is a good
+    question; "tangzhong, or Panasonic?" is a worse one, and offering the
+    also-ran is what makes somebody stop trusting the question.
+    """
     scored: dict[str, float] = {}
     for known in vocabulary:
         if not known:
@@ -96,7 +116,10 @@ def phonetic_candidates(
         if score >= threshold and normalise(known) != normalise(term):
             scored[known] = max(scored.get(known, 0.0), score)
     ranked = sorted(scored.items(), key=lambda pair: (-pair[1], pair[0]))
-    return ranked[:limit]
+    if not ranked:
+        return []
+    best = ranked[0][1]
+    return [(name, score) for name, score in ranked if best - score <= margin][:limit]
 
 
 def vocabulary_of(
@@ -251,18 +274,59 @@ def odd_terms(
 ) -> list[tuple[str, list[tuple[str, float]]]]:
     """Terms that match nothing known, with what they might have been.
 
+    Adjacent words are tried together as well as alone, because speech-to-text
+    breaks one unfamiliar word into two familiar ones far more often than it
+    invents a single strange one: "derailleur" comes back as "the rail er", and
+    "tangzhong" as "yang zoong". A pair that matches something known beats
+    either of its halves.
+
     Only reported when there is something plausible to offer. A genuinely new
     word is not an error; it is just a new word.
     """
+
+    def already_known(term: str) -> bool:
+        return any(normalise(known) == term or term in normalise(known) for known in vocabulary)
+
+    known_words = {word for known in vocabulary for word in words(known)}
+    spoken_words = words(spoken)
     findings: list[tuple[str, list[tuple[str, float]]]] = []
-    for term in words(spoken):
-        if len(term) < min_length or term in _NOISE:
+    consumed: set[int] = set()
+
+    # Pairs first, so the better match wins over one of its halves.
+    for index in range(len(spoken_words) - 1):
+        left, right = spoken_words[index], spoken_words[index + 1]
+        if left in _NOISE or right in _NOISE:
+            continue  # "the tangzhong" is not a mishearing of anything
+        if left in _PAIR_NOISE or right in _PAIR_NOISE:
             continue
-        if any(normalise(known) == term or term in normalise(known) for known in vocabulary):
+        if left in known_words or right in known_words:
             continue
-        candidates = phonetic_candidates(term, vocabulary)
+        if index in consumed or index + 1 in consumed:
+            continue
+        pair = f"{left} {right}"
+        joined = pair.replace(" ", "")
+        if len(joined) < min_length or already_known(joined) or already_known(pair):
+            continue
+        candidates = phonetic_candidates(joined, vocabulary)
+        # A pair needs to be a better match than a single word does, because
+        # there are far more pairs to go wrong.
+        if candidates and candidates[0][1] >= 0.70:
+            findings.append((pair, candidates))
+            consumed.update({index, index + 1})
+
+    for index, term in enumerate(spoken_words):
+        if index in consumed or len(term) < min_length:
+            continue
+        if term in _NOISE or term in _PAIR_NOISE or already_known(term):
+            continue
+        # A short word needs a better match before it is queried. "Check" is
+        # close enough to plenty of things to be worth asking about, and asking
+        # would be wrong every time.
+        threshold = 0.75 if len(term) <= 6 else 0.62
+        candidates = phonetic_candidates(term, vocabulary, threshold=threshold)
         if candidates:
             findings.append((term, candidates))
+
     return findings
 
 

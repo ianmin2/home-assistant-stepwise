@@ -64,7 +64,11 @@ class TestMishearings(unittest.TestCase):
             [
                 models.Procedure.new(
                     "Rosemary tangzhong loaf",
-                    [models.Step(1, "200 g wholemeal flour", ingredients=["tangzhong"])],
+                    [
+                        models.Step(
+                            1, "200 g wholemeal flour", ingredients=["tangzhong", "flour"]
+                        )
+                    ],
                 )
             ],
         )
@@ -80,6 +84,25 @@ class TestMishearings(unittest.TestCase):
         self.assertEqual(resolution.odd_terms("make the tangzhong loaf", self.vocabulary), [])
 
     def test_a_genuinely_new_word_is_not_an_error(self) -> None:
+        self.assertEqual(resolution.odd_terms("descale the kettle", self.vocabulary), [])
+
+    def test_a_word_broken_into_two_is_still_caught(self) -> None:
+        """Speech-to-text splits an unfamiliar word far more often than it
+        invents a strange one: "tangzhong" comes back as "yang zoong"."""
+        found = resolution.odd_terms("make me a yang zoong loaf", self.vocabulary)
+        self.assertEqual([term for term, _ in found], ["yang zoong"])
+        self.assertEqual([name for name, _ in found[0][1]], ["tangzhong"])
+
+    def test_scaffolding_is_not_glued_onto_a_known_word(self) -> None:
+        self.assertEqual(resolution.odd_terms("make the tangzhong", self.vocabulary), [])
+        self.assertEqual(resolution.odd_terms("check the flour is in", self.vocabulary), [])
+
+    def test_an_also_ran_guess_is_not_offered_alongside_the_right_one(self) -> None:
+        """"Tangzhong?" is a good question. "Tangzhong, or Panasonic?" is not."""
+        found = resolution.odd_terms("make me a yaangzong loaf", self.vocabulary)
+        self.assertEqual([name for name, _ in found[0][1]], ["tangzhong"])
+
+    def test_a_pair_needs_to_match_better_than_a_single_word_does(self) -> None:
         self.assertEqual(resolution.odd_terms("descale the kettle", self.vocabulary), [])
 
     def test_sound_alike_beats_spelling(self) -> None:

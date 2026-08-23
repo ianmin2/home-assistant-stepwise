@@ -5,7 +5,31 @@ All notable changes to Stepwise are recorded here. Versions follow
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- After a reorder the pointer goes to the first step **not yet done**, rather
+  than following the step it happened to be on. Told "yeast goes in first"
+  before anything has gone in, the answer is step one — the old behaviour
+  silently skipped the yeast the correction was about.
+
+### Added
+
+- Telling Stepwise what something is, mid-run, attaches it to that run. The
+  usual way this is asked for is a correction on a run that never named a
+  subject, and the answer has to land somewhere.
+- Asked which thing it is when nothing is on file, it asks for the thing —
+  "Which bread machine is it? The order depends on the model." — rather than
+  offering a choice of nothing.
+- Mishearings split across two words are caught: speech-to-text turns
+  *derailleur* into "rail er" and *tangzhong* into "yang zoong" far more often
+  than it invents a single strange word.
+
+### Changed
+
+- One best guess is offered rather than a list. "Tangzhong?" is a better
+  question than "tangzhong, or Panasonic?"
+- Short and common words are no longer queried unless the match is strong,
+  so "check the flour is in" passes without comment.
 
 ## [0.1.0] — 2026-08-23
 

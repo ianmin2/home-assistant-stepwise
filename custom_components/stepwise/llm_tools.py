@@ -137,6 +137,7 @@ class SubjectSaveTool(StepwiseTool):
     description = (
         "Create a subject, or amend one that exists, when the person tells you what "
         "something is. Use it to store a make and model you were asked for. If the "
+        "If a run is under way without one, the answer is attached to it. If the "
         "person describes something inconsistent with a stored subject it will refuse "
         "and ask: create a new subject if it is a different thing, or pass changed "
         "once they confirm this one has changed."
@@ -173,7 +174,9 @@ class SubjectSaveTool(StepwiseTool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> JsonObjectType:
-        return await self._run(hass, "subject_save", **tool_input.tool_args)
+        return await self._run(
+            hass, "subject_save", user_id=self._user_id(llm_context), **tool_input.tool_args
+        )
 
 
 class QuirkConfirmTool(StepwiseTool):

@@ -315,12 +315,28 @@ class TestCorrections(Kitchen):
         template = [step.instruction for step in self.store.get_procedure(self.procedure_id).steps]
         self.assertEqual(template[0], "200 g wholemeal flour")
 
-    def test_reordering_takes_the_pointer_with_it(self) -> None:
-        self.engine.run_advance()  # on step 2, the salt
+    def test_reordering_goes_back_to_the_first_thing_not_yet_done(self) -> None:
+        """Told "yeast first" before the yeast is in, the answer is the yeast.
+
+        Following the step they happened to be on would leave the yeast out of
+        the loaf entirely, which is the whole reason they corrected you.
+        """
+        self.engine.run_advance()  # the flour is in; on the salt
+        reply = self.engine.run_amend(reorder=[3, 1, 2, 4, 5, 6, 7])
+        run = self.store.get_run(self.run_id)
+        self.assertEqual(run.current_step, 1)
+        self.assertEqual(self.engine.run_where().data["step"]["instruction"], "5 g dried yeast")
+        self.assertIn("Back to step 1", reply.speech)
+
+    def test_reordering_does_not_send_you_back_over_finished_work(self) -> None:
+        for _ in range(3):  # flour, salt and yeast are all in
+            self.engine.run_advance()
         self.engine.run_amend(reorder=[3, 1, 2, 4, 5, 6, 7])
         run = self.store.get_run(self.run_id)
-        self.assertEqual(run.current_step, 3)
-        self.assertEqual(self.engine.run_where().data["step"]["instruction"], "7 g salt")
+        self.assertEqual(run.current_step, 4)
+        self.assertEqual(
+            self.engine.run_where().data["step"]["instruction"], "Chopped rosemary, 10 g"
+        )
 
     def test_a_subject_scoped_amendment_writes_a_quirk_with_its_source(self) -> None:
         reply = self.engine.run_amend(
