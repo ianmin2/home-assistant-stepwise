@@ -39,6 +39,7 @@ from .const import (
     EVENT_REPOSITIONED,
     EVENT_RUN_STARTED,
     EVENT_TIMER_STARTED,
+    EVENT_UNDONE,
     HOT,
     LEARNED_FROM_OBSERVED,
     LEARNED_FROM_USER,
@@ -46,6 +47,7 @@ from .const import (
     NAMING_ALWAYS_ASK,
     NAMING_NEVER_ASK,
     NAMING_PROPOSE,
+    OPEN_RUN_STATUSES,
     QUIRK_STALE_DAYS,
     RUN_ABANDONED,
     RUN_ACTIVE,
@@ -163,6 +165,27 @@ _OPPOSITES = (
 _NEGATIONS = ("no ", "not ", "never ", "isn't", "doesn't", "hasn't", "there's no", "without")
 
 
+@dataclass
+class InPlay:
+    """Which run an instruction lands on, and how sure we are.
+
+    `status` is "ok" when it can simply be acted on, "none" when nothing is
+    live, "cold" when it must be offered rather than assumed, and "which" when
+    more than one could be meant.
+    """
+
+    run: Run | None
+    status: str
+    fell_back: bool = False
+    others: list[Run] = field(default_factory=list)
+
+
+def _count_word(count: int) -> str:
+    """"Two things on the go" is wrong when there are three of them."""
+    words = {2: "Two", 3: "Three", 4: "Four", 5: "Five"}
+    return f"{words.get(count, str(count))} things"
+
+
 def _serialised(method: Callable[..., Reply]) -> Callable[..., Reply]:
     """One engine call at a time.
 
@@ -278,12 +301,104 @@ class Engine:
         procedure = procedure or self._procedure(run)
         return procedure.step(run.current_step)
 
-    def current_run(self, user_id: str | None = None, run_id: str | None = None) -> Run | None:
-        """The run in play. Most recently touched wins; several may be live."""
+    @staticmethod
+    def may_touch(run: Run, user_id: str | None) -> bool:
+        """Whose run is whose.
+
+        A run with no owner belongs to the house: that is what a voice
+        satellite creates, and a bread machine is not private. A run with an
+        owner belongs to that person. A caller with no user context is speaking
+        for the house and may reach anything — which is what makes a single
+        person, who starts a run in the app and finishes it at the speaker,
+        work at all. This is the same rule `Store.open_runs` filters by, in one
+        place, so that changing it later is one edit rather than nine.
+        """
+        if user_id is None:
+            return True
+        return run.user_id in (None, user_id)
+
+    def in_play(self, user_id: str | None = None, run_id: str | None = None) -> InPlay:
+        """Which run a bare instruction lands on, and whether to assume it.
+
+        Section 6 says a cold run is offered and never assumed. Until now only
+        `run_where` honoured that, so "done" two days later moved the pointer
+        on whichever run happened to be touched last, silently.
+        """
+        open_runs = [
+            run for run in self.store.open_runs(user_id=user_id) if self.may_touch(run, user_id)
+        ]
         if run_id:
-            return self.store.get_run(run_id)
-        open_runs = self.store.open_runs(user_id=user_id)
-        return open_runs[0] if open_runs else None
+            named = self.store.get_run(run_id)
+            usable = (
+                named is not None
+                and named.status in OPEN_RUN_STATUSES
+                and self.may_touch(named, user_id)
+            )
+            if usable:
+                assert named is not None
+                return InPlay(named, "ok")
+            # An id that is unknown, finished, or somebody else's. Falling back
+            # to the obvious run beats answering "nothing on the go" while a
+            # loaf is plainly part done — a model that invents an id must not be
+            # able to make the product deny the run in front of them.
+            if len(open_runs) == 1:
+                return InPlay(open_runs[0], "ok", fell_back=True)
+            if not open_runs:
+                return InPlay(None, "none")
+            return InPlay(None, "which", others=open_runs, fell_back=True)
+
+        if not open_runs:
+            return InPlay(None, "none")
+
+        # Most recently touched wins, which is what makes naming one — "how's
+        # the loaf doing" — switch to it and keep whatever is said next landing
+        # there. The same rule `run_where` already applies: hot is assumed,
+        # cold is offered, and several with none of them hot is a question.
+        run = open_runs[0]
+        rest = open_runs[1:]
+        state, _since = self.stickiness(run)
+        if state == COLD:
+            return InPlay(run, "cold", others=rest)
+        if rest and state != HOT:
+            return InPlay(None, "which", others=open_runs)
+        return InPlay(run, "ok", others=rest)
+
+    def _needs_asking(self, play: InPlay) -> Reply | None:
+        """The reply to give instead of moving something we are not sure about."""
+        if play.status == "none":
+            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        if play.status == "which":
+            names = [run.reference for run in play.others]
+            return Reply(
+                f"{_count_word(len(names))} on the go: {oxford(names)}. Which one?",
+                {
+                    "status": "which_run",
+                    "runs": [self._run_data(run) for run in play.others],
+                },
+            )
+        if play.status == "cold":
+            run = play.run
+            assert run is not None
+            _state, since = self.stickiness(run)
+            step = self._procedure(run).step(run.current_step)
+            where = ""
+            if step:
+                said = speech.say_step(step, self.settings.units)
+                where = f" You were on step {step.n}, {said}."
+            return Reply(
+                f"{speech.no_shame(run.reference, since)}{where} Carry on?",
+                {
+                    "status": "offer_cold",
+                    "run_id": run.id,
+                    "reference": run.reference,
+                    "step": self._step_data(step) if step else None,
+                },
+            )
+        return None
+
+    def current_run(self, user_id: str | None = None, run_id: str | None = None) -> Run | None:
+        """The run in play, without the question. Reads only."""
+        return self.in_play(user_id, run_id).run
 
     # Resolution --------------------------------------------------------
     @_serialised
@@ -623,10 +738,20 @@ class Engine:
         Naming a run makes it the current one, so whatever they say next lands
         on it.
         """
-        open_runs = self.store.open_runs(user_id=user_id)
+        open_runs = [
+            run for run in self.store.open_runs(user_id=user_id) if self.may_touch(run, user_id)
+        ]
         if run_id:
-            run = self.store.get_run(run_id)
-            open_runs = [run] if run else []
+            named = self.store.get_run(run_id)
+            if (
+                named is not None
+                and named.status in OPEN_RUN_STATUSES
+                and self.may_touch(named, user_id)
+            ):
+                open_runs = [named, *[other for other in open_runs if other.id != named.id]]
+            # An id that is unknown, finished or somebody else's is not a reason
+            # to deny a run that is plainly part done. Answer about the obvious
+            # one instead.
         if not open_runs:
             return Reply("Nothing on the go.", {"status": "nothing_active", "runs": []})
 
@@ -716,15 +841,49 @@ class Engine:
 
     @_serialised
     def run_advance(
-        self, note: str | None = None, run_id: str | None = None, user_id: str | None = None
+        self,
+        note: str | None = None,
+        run_id: str | None = None,
+        user_id: str | None = None,
+        from_step: int | None = None,
     ) -> Reply:
-        """Complete the current step, return the next. The only tool that moves on."""
-        run = self.current_run(user_id, run_id)
-        if run is None:
-            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        """Complete the current step, return the next. The only tool that moves on.
+
+        `from_step` is the step the agent believes it just read out. When it is
+        given and disagrees, nothing moves and the person is told where they
+        actually are. It is optional on purpose: a model confident enough to
+        advance on a remark is confident enough to pass a matching number, so
+        requiring it would not prevent that and would stall the most frequent
+        utterance in the product every time the number went missing.
+        """
+        play = self.in_play(user_id, run_id)
+        asking = self._needs_asking(play)
+        if asking is not None:
+            return asking
+        run = play.run
+        assert run is not None
 
         procedure = self._procedure(run)
         done = procedure.step(run.current_step)
+
+        if from_step is not None and from_step != run.current_step:
+            here = speech.say_step(done, self.settings.units) if done else "at the end"
+            return Reply(
+                speech.joined(
+                    f"Hold on — I have you on step {run.current_step}",
+                    here,
+                    "Did I lose you?",
+                ),
+                {
+                    "status": "out_of_step",
+                    "run_id": run.id,
+                    "reference": run.reference,
+                    "expected_step": run.current_step,
+                    "you_said_step": from_step,
+                    "step": self._step_data(done),
+                },
+            )
+
         state, _since = self.stickiness(run)  # as of arrival, before the clock resets
         self._record(run, EVENT_ADVANCED, step_n=run.current_step, text=note)
 
@@ -738,7 +897,7 @@ class Engine:
 
         subject = self.store.get_subject(run.subject_id) if run.subject_id else None
         hint = self.subject_hint(nxt, subject)
-        said = speech.say_step(nxt, self.settings.units)
+        said = speech.with_step(nxt.n, speech.say_step(nxt, self.settings.units))
         stated = self.quirks_to_state(run, nxt, subject)
         if stated:
             said = speech.joined(*(item["speech"] for item in stated), said)
@@ -757,6 +916,7 @@ class Engine:
                 "run_id": run.id,
                 "reference": run.reference,
                 "completed_step": done.n if done else None,
+                "now_on_step": nxt.n,
                 "step": self._step_data(nxt),
                 "steps_left": len(following) - 1,
                 "total_steps": procedure.total_steps,
@@ -772,9 +932,12 @@ class Engine:
         self, description: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
         """Reposition by description. Always reports where it landed."""
-        run = self.current_run(user_id, run_id)
-        if run is None:
-            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        play = self.in_play(user_id, run_id)
+        asking = self._needs_asking(play)
+        if asking is not None:
+            return asking
+        run = play.run
+        assert run is not None
         procedure = self._procedure(run)
         target, confidence, candidates = self._locate(description, procedure, run.current_step)
 
@@ -819,11 +982,75 @@ class Engine:
         )
 
     @_serialised
+    def run_undo(self, run_id: str | None = None, user_id: str | None = None) -> Reply:
+        """Reverse the last thing that moved the pointer, and say where it landed.
+
+        Pointer only, deliberately. A quirk is unlearned through
+        `quirk_confirm`, a timer is not cancelled from here — it may be the
+        only thing standing between somebody and a burnt loaf — and a reorder
+        is reversed with `run_amend`, which already keeps the previous order.
+        A second way to do any of those is the discrimination problem this
+        exists to fix.
+
+        The advance is never deleted. A new event is written, because a spine
+        that can be rewritten is not a record of anything.
+        """
+        play = self.in_play(user_id, run_id)
+        if play.status == "which":
+            asking = self._needs_asking(play)
+            assert asking is not None
+            return asking
+        run = play.run
+        if run is None:
+            return Reply("Nothing on the go.", {"status": "nothing_active"})
+
+        moves = [
+            event
+            for event in self.store.events(run.id)
+            if event.kind in (EVENT_ADVANCED, EVENT_REPOSITIONED, EVENT_UNDONE)
+        ]
+        back_to: int | None = None
+        if moves:
+            last = moves[-1]
+            if last.kind == EVENT_ADVANCED:
+                back_to = last.step_n
+            else:
+                was = last.data.get("was")
+                back_to = int(was) if was is not None else None
+
+        procedure = self._procedure(run)
+        target = procedure.step(back_to) if back_to else None
+        if target is None or target.n == run.current_step:
+            return Reply(
+                f"Nothing to undo — you're at the start of {run.reference}.",
+                {"status": "nothing_to_undo", "run_id": run.id, "reference": run.reference},
+            )
+
+        was_on = run.current_step
+        run.current_step = target.n
+        self.store.save_run(run)
+        self._record(run, EVENT_UNDONE, step_n=target.n, was=was_on, undid=moves[-1].kind)
+        return Reply(
+            speech.landed(target, self.settings.units),
+            {
+                "status": "undone",
+                "run_id": run.id,
+                "reference": run.reference,
+                "was_step": was_on,
+                "step": self._step_data(target),
+                "total_steps": procedure.total_steps,
+            },
+        )
+
+    @_serialised
     def run_ask(
         self, question: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
         """An aside. Answers from procedure, notes or clock. Moves nothing."""
-        run = self.current_run(user_id, run_id)
+        # Asking is free, and it must never be refused. A cold run is still
+        # the run they mean, so answer it and leave the pointer where it is.
+        play = self.in_play(user_id, run_id)
+        run = play.run
         if run is None:
             return Reply("Nothing on the go.", {"status": "nothing_active"})
         procedure = self._procedure(run)
@@ -860,9 +1087,12 @@ class Engine:
         self, text: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
         """An observation, against the current step and time. Nothing moves."""
-        run = self.current_run(user_id, run_id)
-        if run is None:
-            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        play = self.in_play(user_id, run_id)
+        asking = self._needs_asking(play)
+        if asking is not None:
+            return asking
+        run = play.run
+        assert run is not None
         event = self._record(run, EVENT_NOTE, step_n=run.current_step, text=text)
         return Reply(
             "Noted.",
@@ -885,9 +1115,12 @@ class Engine:
         abandoned: bool = False,
     ) -> Reply:
         """Close, archive, optionally record how it went."""
-        run = self.current_run(user_id, run_id)
-        if run is None:
-            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        play = self.in_play(user_id, run_id)
+        asking = self._needs_asking(play)
+        if asking is not None:
+            return asking
+        run = play.run
+        assert run is not None
         procedure = self._procedure(run)
         return self._close(
             run,
@@ -935,9 +1168,12 @@ class Engine:
         self, claim: str, run_id: str | None = None, user_id: str | None = None
     ) -> Reply:
         """The user disputes a step (section 9). Decides, never overrules silently."""
-        run = self.current_run(user_id, run_id)
-        if run is None:
-            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        play = self.in_play(user_id, run_id)
+        asking = self._needs_asking(play)
+        if asking is not None:
+            return asking
+        run = play.run
+        assert run is not None
         procedure = self._procedure(run)
         self._record(run, EVENT_CHALLENGED, step_n=run.current_step, text=claim)
 
@@ -1052,9 +1288,12 @@ class Engine:
         reorder: Sequence[int] | None = None,
     ) -> Reply:
         """Change a step in this run, optionally the subject's quirks or the procedure."""
-        run = self.current_run(user_id, run_id)
-        if run is None:
-            return Reply("Nothing on the go.", {"status": "nothing_active"})
+        play = self.in_play(user_id, run_id)
+        asking = self._needs_asking(play)
+        if asking is not None:
+            return asking
+        run = play.run
+        assert run is not None
         procedure = self._procedure(run)
         sources = self.store.run_step_sources(run.id)
         amended: list[dict[str, Any]] = []

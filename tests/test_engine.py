@@ -491,6 +491,114 @@ class TestTwoAtOnce(Kitchen):
         self.assertEqual([e.step_n for e in advanced], [1, 2])
 
 
+class TestThePointerIsDefended(Kitchen):
+    """The worst failure this thing can have is being on a different step
+    from the person without either of them knowing."""
+
+    def test_every_advance_says_which_step_it_landed_on(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_advance(run_id=run_id)
+        self.assertIn("Step 2", reply.speech)
+        self.assertEqual(reply.data["now_on_step"], 2)
+
+    def test_an_advance_from_the_wrong_step_moves_nothing(self) -> None:
+        """The agent thinks it read out step five; the run says step one. One
+        of them is wrong, and it is not the one holding the record."""
+        run_id = self.start()
+        reply = self.engine.run_advance(run_id=run_id, from_step=5)
+        self.assertEqual(reply.data["status"], "out_of_step")
+        self.assertIn("step 1", reply.speech)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.current_step, 1)
+
+    def test_an_advance_that_agrees_goes_through(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_advance(run_id=run_id, from_step=1)
+        self.assertEqual(reply.data["status"], "advanced")
+
+    def test_undo_puts_the_pointer_back_and_says_where(self) -> None:
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        self.engine.run_advance(run_id=run_id)
+        reply = self.engine.run_undo(run_id=run_id)
+        self.assertEqual(reply.data["status"], "undone")
+        self.assertIn("step 2", reply.speech)
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.current_step, 2)
+
+    def test_undo_writes_a_new_event_and_deletes_nothing(self) -> None:
+        """A spine that can be rewritten is not a record of anything."""
+        run_id = self.start()
+        self.engine.run_advance(run_id=run_id)
+        before = len(self.store.events(run_id))
+        self.engine.run_undo(run_id=run_id)
+        events = self.store.events(run_id)
+        self.assertEqual(len(events), before + 1)
+        self.assertEqual(events[-1].kind, const.EVENT_UNDONE)
+        self.assertTrue(any(e.kind == const.EVENT_ADVANCED for e in events))
+
+    def test_undo_at_the_start_says_so_rather_than_pretending(self) -> None:
+        run_id = self.start()
+        reply = self.engine.run_undo(run_id=run_id)
+        self.assertEqual(reply.data["status"], "nothing_to_undo")
+
+    def test_a_cold_run_is_offered_never_advanced(self) -> None:
+        """Section 6 said this all along. Only run_where honoured it."""
+        run_id = self.start()
+        self.age(run_id, minutes=60 * 24)
+        reply = self.engine.run_advance()
+        self.assertEqual(reply.data["status"], "offer_cold")
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.current_step, 1)
+
+    def test_naming_the_cold_run_advances_it(self) -> None:
+        run_id = self.start()
+        self.age(run_id, minutes=60 * 24)
+        reply = self.engine.run_advance(run_id=run_id)
+        self.assertEqual(reply.data["status"], "advanced")
+
+    def test_a_finished_run_cannot_be_advanced_by_id(self) -> None:
+        run_id = self.start()
+        self.engine.run_finish(run_id=run_id, abandoned=True)
+        reply = self.engine.run_advance(run_id=run_id)
+        self.assertEqual(reply.data["status"], "nothing_active")
+        run = self.store.get_run(run_id)
+        assert run is not None
+        self.assertEqual(run.current_step, 1)
+
+    def test_an_invented_id_falls_back_rather_than_denying_the_run(self) -> None:
+        """A model that makes an id up must not be able to make the product
+        say "nothing on the go" while a loaf is plainly part done."""
+        run_id = self.start()
+        reply = self.engine.run_where(run_id="run_deadbeef")
+        self.assertEqual(reply.data["run_id"], run_id)
+
+
+class TestWhoseRunIsWhose(Kitchen):
+    def test_a_named_person_cannot_reach_somebody_elses_run(self) -> None:
+        alice = self.engine.run_start(
+            self.procedure_id, reference="alice's loaf", user_id="alice"
+        ).data["run_id"]
+        reply = self.engine.run_advance(run_id=alice, user_id="bob")
+        self.assertEqual(reply.data["status"], "nothing_active")
+
+    def test_a_run_with_no_owner_belongs_to_the_house(self) -> None:
+        """A voice satellite carries no user, and a bread machine is not private."""
+        run_id = self.start()
+        reply = self.engine.run_advance(run_id=run_id, user_id="bob")
+        self.assertEqual(reply.data["status"], "advanced")
+
+    def test_the_speaker_speaks_for_the_house(self) -> None:
+        alice = self.engine.run_start(
+            self.procedure_id, reference="alice's loaf", user_id="alice"
+        ).data["run_id"]
+        reply = self.engine.run_advance(run_id=alice)
+        self.assertEqual(reply.data["status"], "advanced")
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -302,13 +302,20 @@ class RunAdvanceTool(StepwiseTool):
     name = "run_advance"
     description = (
         "Complete the current step and return the next one. Only for 'done', "
-        "'that's in', 'next'. Never call this because the person asked a question."
+        "'that's in', 'next'. Never call this because the person asked a question, "
+        "and never because they remarked on how it is going: 'it's gone sticky' is "
+        "not 'done'. Pass from_step with the number of the step you last read out, "
+        "so a run that has drifted out of step with you is caught rather than moved."
     )
     parameters = vol.Schema(
         {
             vol.Optional(
                 "note", description="Anything they said while completing it"
             ): str,
+            vol.Optional(
+                "from_step",
+                description="The number of the step you just read out to them",
+            ): int,
             vol.Optional("run_id", description="Only when more than one run is live"): str,
         }
     )
@@ -318,6 +325,28 @@ class RunAdvanceTool(StepwiseTool):
     ) -> JsonObjectType:
         return await self._run(
             hass, "run_advance", user_id=self._user_id(llm_context), **tool_input.tool_args
+        )
+
+
+class RunUndoTool(StepwiseTool):
+    """Put the pointer back where it was, and say so."""
+
+    name = "run_undo"
+    description = (
+        "Reverse the last thing that moved the run — 'no, go back', 'I didn't mean "
+        "done', 'that wasn't finished'. Says which step it put them back on. It "
+        "moves the pointer and nothing else: it does not unlearn anything, and it "
+        "does not stop a timer."
+    )
+    parameters = vol.Schema(
+        {vol.Optional("run_id", description="Only when more than one run is live"): str}
+    )
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> JsonObjectType:
+        return await self._run(
+            hass, "run_undo", user_id=self._user_id(llm_context), **tool_input.tool_args
         )
 
 
@@ -580,6 +609,7 @@ TOOLS: tuple[type[StepwiseTool], ...] = (
     RunStartTool,
     RunWhereTool,
     RunAdvanceTool,
+    RunUndoTool,
     RunGotoTool,
     RunAskTool,
     RunNoteTool,
@@ -607,12 +637,16 @@ only after they say yes.
 finished. A run left for three days is simply a run left for three days.
 
 Which tool:
-- "Done", "that's in", "next" -> run_advance. Nothing else advances a run.
+- "Done", "that's in", "next" -> run_advance, passing from_step with the number \
+of the step you last read out. Nothing else advances a run.
+- "No, go back", "I didn't mean done" -> run_undo. It says where it put them back.
 - A question of any kind -> run_ask. Asking must never cost somebody their place.
 - An observation -> run_note.
 - "Skip to...", "go back...", "I'm at the bit where..." -> run_goto, and always \
 say which step it landed on.
 - "Where were we" or anything that assumes you already know -> run_where.
+- If a tool answers that it has them on a different step, believe it and say so. \
+It is holding the record; you are holding a guess.
 - "That's wrong for mine" -> run_challenge, then run_amend once it is settled.
 
 Quirks are said out loud before they are relied on, so they can be corrected \

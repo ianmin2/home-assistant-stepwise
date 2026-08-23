@@ -24,6 +24,7 @@ EXPECTED = {
     "run_start",
     "run_where",
     "run_advance",
+    "run_undo",
     "run_goto",
     "run_ask",
     "run_note",

@@ -307,6 +307,17 @@ def say_step(step: Step, units: str = "", prompt: bool = False) -> str:
     return said
 
 
+def with_step(number: int, said: str) -> str:
+    """Say which step this is, every time the pointer moves.
+
+    The only pointer move that never announced itself was the one that happens
+    fifty times a run. A step that is skipped by mistake — because a remark was
+    heard as "done" — is then skipped silently, which is the failure this whole
+    thing exists to prevent. One clause makes it audible.
+    """
+    return f"Step {number}. {sentence(said)}" if said else f"Step {number}."
+
+
 def with_reference(reference: str, sentence: str) -> str:
     """Restated casually at natural moments, never announced as an id."""
     if not reference:
