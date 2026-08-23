@@ -24,6 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_DOMAIN = "ha_ai_memory"
 DEFAULT_RECALL = "search"
 DEFAULT_REMEMBER = "remember"
+DEFAULT_FORGET = "forget"
 DEFAULT_RESPONSE_PATH = "results"
 
 
@@ -39,6 +40,7 @@ class HaAiMemory(MemoryBackend):
         domain: str = DEFAULT_DOMAIN,
         recall_service: str = DEFAULT_RECALL,
         remember_service: str = DEFAULT_REMEMBER,
+        forget_service: str = DEFAULT_FORGET,
         response_path: str = DEFAULT_RESPONSE_PATH,
     ) -> None:
         self.hass = hass
@@ -46,6 +48,7 @@ class HaAiMemory(MemoryBackend):
         self.domain = domain
         self.recall_service = recall_service
         self.remember_service = remember_service
+        self.forget_service = forget_service
         self.response_path = response_path
 
     async def available(self) -> bool:
@@ -92,4 +95,22 @@ class HaAiMemory(MemoryBackend):
         except HomeAssistantError as err:
             _LOGGER.debug("ha-ai-memory remember failed: %s", err)
             return await self.fallback.remember(text, subject_id, source)
+        return True
+
+    async def forget(self, fact_id: str) -> bool:
+        """Unlearn one fact, falling back to the local table.
+
+        A fact stored upstream can only be removed upstream, so if there is no
+        service for it this says so rather than reporting a success it did not
+        have. Anything that landed in the local table is still removable.
+        """
+        if not self.hass.services.has_service(self.domain, self.forget_service):
+            return await self.fallback.forget(fact_id)
+        try:
+            await self.hass.services.async_call(
+                self.domain, self.forget_service, {"id": fact_id}, blocking=True
+            )
+        except HomeAssistantError as err:
+            _LOGGER.debug("ha-ai-memory forget failed: %s", err)
+            return await self.fallback.forget(fact_id)
         return True

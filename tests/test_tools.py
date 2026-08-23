@@ -8,6 +8,7 @@ description for the model to read.
 from __future__ import annotations
 
 import ast
+import json
 import unittest
 from pathlib import Path
 
@@ -118,6 +119,70 @@ class TestPackaging(unittest.TestCase):
         }
         described = set(strings["options"]["step"]) | set(strings["config"]["step"])
         self.assertEqual(steps - described, set(), "a flow step has no strings")
+
+
+class TestTheSettingsFormMatchesItsLabels(unittest.TestCase):
+    """A setting with a translation and no box is a setting nobody can set.
+
+    `search_response_path` shipped that way: a botched edit passed it to
+    voluptuous as a message rather than a key, the real key was written twice,
+    and the two markers collapsed into one — so the field never rendered, while
+    its labels sat in strings.json looking correct. Nothing caught it, because
+    config_flow.py needs Home Assistant to import and so nothing imported it.
+    This reads the source instead.
+    """
+
+    @staticmethod
+    def schema_keys() -> set[str]:
+        """Every key the settings form actually builds, read out of the source."""
+        tree = ast.parse((INTEGRATION / "config_flow.py").read_text())
+        constants = {
+            node.targets[0].id: node.value.value
+            for node in ast.parse((INTEGRATION / "const.py").read_text()).body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in ("Optional", "Required") or not node.args:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Name) and first.id in constants:
+                found.add(constants[first.id])
+            elif isinstance(first, ast.Constant) and isinstance(first.value, str):
+                found.add(first.value)
+        return found
+
+    def test_every_translated_setting_has_a_box_to_type_it_in(self) -> None:
+        strings = json.loads((INTEGRATION / "strings.json").read_text())
+        built = self.schema_keys()
+        for section, step in (("config", "user"), ("options", "settings")):
+            labelled = set(strings[section]["step"][step]["data"])
+            missing = labelled - built
+            self.assertEqual(
+                missing,
+                set(),
+                f"{section}/{step} has labels for settings the form never shows: {missing}",
+            )
+
+    def test_no_setting_is_offered_without_a_label(self) -> None:
+        strings = json.loads((INTEGRATION / "strings.json").read_text())
+        labelled = set(strings["config"]["step"]["user"]["data"]) | set(
+            strings["options"]["step"]["settings"]["data"]
+        )
+        for step in ("subjects", "subject", "runs"):
+            labelled |= set(strings["options"]["step"][step].get("data", {}))
+        unlabelled = {key for key in self.schema_keys() if key not in labelled}
+        self.assertEqual(unlabelled, set(), f"no label for: {unlabelled}")
+
+    def test_the_two_translation_files_agree(self) -> None:
+        strings = json.loads((INTEGRATION / "strings.json").read_text())
+        english = json.loads((INTEGRATION / "translations" / "en.json").read_text())
+        self.assertEqual(strings, english)
 
 
 if __name__ == "__main__":

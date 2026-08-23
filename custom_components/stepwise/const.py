@@ -10,7 +10,7 @@ DOMAIN = "stepwise"
 
 # Storage ---------------------------------------------------------------
 DB_FILENAME = "stepwise.db"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Configuration keys ----------------------------------------------------
 CONF_MEMORY_BACKEND = "memory_backend"

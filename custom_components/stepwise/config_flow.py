@@ -232,6 +232,7 @@ class StepwiseOptionsFlow(OptionsFlow):
         if subject is None:
             return self.async_abort(reason="no_subjects")
         quirks = await self._execute("quirks", subject.id, False)
+        facts = await self._execute("facts", subject.id)
 
         if user_input is not None:
             subject.label = user_input["label"]
@@ -243,6 +244,8 @@ class StepwiseOptionsFlow(OptionsFlow):
             await self._execute("save_subject", subject)
             for quirk_id in user_input.get("retract", []):
                 await self._execute("retract_quirk", quirk_id)
+            for fact_id in user_input.get("forget", []):
+                await self._execute("forget_fact", fact_id)
             if user_input.get("retire"):
                 await self._execute("retire_subject", subject.id, None)
             return self.async_create_entry(data=dict(self.config_entry.options))
@@ -269,6 +272,21 @@ class StepwiseOptionsFlow(OptionsFlow):
                             label=_quirk_label(quirk),
                         )
                         for quirk in quirks
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            )
+        if facts:
+            # A fact that cannot be seen and cannot be removed is permanent,
+            # which is the failure this is meant not to have.
+            schema[vol.Optional("forget", default=[])] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value=str(fact["id"]), label=str(fact["text"])
+                        )
+                        for fact in facts
                     ],
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,

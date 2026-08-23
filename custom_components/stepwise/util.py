@@ -263,3 +263,33 @@ def oxford(items: list[str], joiner: str = "and") -> str:
     if len(items) == 2:
         return f"{items[0]} {joiner} {items[1]}"
     return f"{', '.join(items[:-1])} {joiner} {items[-1]}"
+
+
+# Claims that contradict each other -------------------------------------
+# Markers that turn a claim into the opposite of a stored one. This lives here
+# rather than in the engine because the store needs it too: a quirk that
+# contradicts one already held must supersede it at the moment it is written,
+# not merely be noticed later when both are read out together.
+OPPOSITES = (
+    ("first", "last"), ("top", "bottom"), ("before", "after"),
+    ("start", "end"), ("above", "below"), ("clockwise", "anticlockwise"),
+    ("left", "right"), ("open", "closed"), ("on", "off"),
+)
+NEGATIONS = ("no ", "not ", "never ", "isn't", "doesn't", "hasn't", "there's no", "without")
+
+
+def contradicts(stored: str, claim: str) -> bool:
+    """A contradiction is information, not an error — but spot it first."""
+    stored_words, claim_words = set(words(stored)), set(words(claim))
+    shared = stored_words & claim_words
+    if len(shared) < 2:
+        return False
+    for left, right in OPPOSITES:
+        if (left in stored_words and right in claim_words) or (
+            right in stored_words and left in claim_words
+        ):
+            return True
+    stored_low, claim_low = f" {normalise(stored)} ", f" {normalise(claim)} "
+    negated_now = any(marker.strip() in claim_low for marker in NEGATIONS)
+    negated_then = any(marker.strip() in stored_low for marker in NEGATIONS)
+    return negated_now != negated_then and len(shared) >= 2

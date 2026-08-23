@@ -27,7 +27,7 @@ from .const import (
     SUBJECT_RETIRED,
 )
 from .models import Amendment, Procedure, Quirk, Run, RunEvent, Step, Subject
-from .util import iso, normalise, short_id
+from .util import contradicts, iso, normalise, short_id
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS runs (
     finished_at TEXT,
     outcome TEXT,
     user_id TEXT,
-    subject_loose INTEGER NOT NULL DEFAULT 0
+    subject_loose INTEGER NOT NULL DEFAULT 0,
+    touch_seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs (status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_subject ON runs (subject_id, updated_at DESC);
@@ -209,6 +210,21 @@ def _migration_3(conn: sqlite3.Connection) -> None:
                 )
 
 
+def _migration_4(conn: sqlite3.Connection) -> None:
+    """An order for runs that cannot tie.
+
+    "The one you last touched" decides which run a bare "done" lands on. It was
+    ordered by a timestamp, and two runs started or touched in the same
+    millisecond sorted however the rows happened to come back — so switching to
+    a run by name worked most of the time and silently did not the rest of it.
+    A counter that only ever goes up cannot tie.
+    """
+    _add_columns(conn, (("runs", "touch_seq", "INTEGER NOT NULL DEFAULT 0"),))
+    rows = conn.execute("SELECT id FROM runs ORDER BY updated_at ASC, rowid ASC").fetchall()
+    for seq, row in enumerate(rows, start=1):
+        conn.execute("UPDATE runs SET touch_seq = ? WHERE id = ?", (seq, row["id"]))
+
+
 @dataclass(frozen=True)
 class Migration:
     """One numbered step. `rewrites_data` decides whether a backup is taken."""
@@ -220,6 +236,7 @@ class Migration:
 MIGRATIONS: dict[int, Migration] = {
     2: Migration(_migration_2),
     3: Migration(_migration_3, rewrites_data=True),
+    4: Migration(_migration_4),
 }
 
 
@@ -492,7 +509,7 @@ class Store:
         if subject_kind:
             sql += " WHERE subject_kind = ?"
             params.append(subject_kind)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
+        sql += " ORDER BY updated_at DESC, rowid DESC LIMIT ?"
         params.append(limit)
         return [
             Procedure.from_row(row, self.get_steps(row["id"]))
@@ -520,7 +537,10 @@ class Store:
         if subject_id:
             sql += " AND subject_id = ?"
             params.append(subject_id)
-        sql += " ORDER BY updated_at DESC"
+        # A counter that only ever goes up, because millisecond stamps still
+        # tie when two runs are touched in the same instant — and "the one you
+        # last touched" is how the right run gets chosen.
+        sql += " ORDER BY touch_seq DESC, updated_at DESC, rowid DESC"
         return [Run.from_row(row) for row in self._rows(sql, params)]
 
     def recent_runs(self, subject_id: str | None = None, limit: int = 10) -> list[Run]:
@@ -529,13 +549,22 @@ class Store:
         if subject_id:
             sql += " WHERE subject_id = ?"
             params.append(subject_id)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
+        sql += " ORDER BY touch_seq DESC, updated_at DESC, rowid DESC LIMIT ?"
         params.append(limit)
         return [Run.from_row(row) for row in self._rows(sql, params)]
 
+    def _next_touch(self) -> int:
+        row = self._row("SELECT COALESCE(MAX(touch_seq), 0) + 1 AS next FROM runs")
+        return int(row["next"]) if row else 1
+
     def touch_run(self, run_id: str, when: str | None = None) -> None:
         """Any contact resets the clock (section 6, rolling not fixed)."""
-        self._write("UPDATE runs SET updated_at = ? WHERE id = ?", (when or iso(), run_id))
+        with self._lock:
+            self.conn.execute(
+                "UPDATE runs SET updated_at = ?, touch_seq = ? WHERE id = ?",
+                (when or iso(), self._next_touch(), run_id),
+            )
+            self.conn.commit()
 
     # Run steps ---------------------------------------------------------
     # A run owns its steps. Amending one changes this run, never the template
@@ -627,11 +656,20 @@ class Store:
 
     # Quirks ------------------------------------------------------------
     def add_quirk(self, quirk: Quirk, supersedes: str | None = None) -> Quirk:
-        """Quirks supersede on the same subject rather than appending."""
+        """Quirks supersede on the same subject rather than appending.
+
+        Supersession used to need the same words. So "yeast goes in first" and
+        "yeast goes in last" both stayed active, both bore on the same step,
+        and both were read out in the same breath — which is the accumulating
+        memory this was built to be better than. A claim that contradicts one
+        already held replaces it.
+        """
         if supersedes is None:
             target = normalise(quirk.claim)
             for existing in self.quirks(quirk.subject_id):
-                if normalise(existing.claim) == target:
+                if normalise(existing.claim) == target or contradicts(
+                    existing.claim, quirk.claim
+                ):
                     supersedes = existing.id
                     break
         if supersedes:
@@ -682,11 +720,21 @@ class Store:
     # Only for the built-in memory backend. Long-lived facts belong in a memory
     # integration; this is here for people who do not want a second one.
     def add_fact(self, text: str, subject_id: str | None = None, source: str = "user") -> str:
+        """Remember a fact, replacing one it contradicts rather than joining it.
+
+        Told the keys are in the bedroom and later that they are in the
+        kitchen, an appending store says both. Exact repeats were already
+        ignored; a claim that contradicts one held now replaces it, which is
+        the same rule the quirks table follows.
+        """
         existing = self.facts(subject_id)
         target = normalise(text)
         for fact in existing:
             if normalise(fact["text"]) == target:
                 return str(fact["id"])
+        for fact in existing:
+            if contradicts(str(fact["text"]), text):
+                self.forget_fact(str(fact["id"]))
         fact_id = short_id("fct")
         self._write(
             "INSERT INTO facts (id, subject_id, text, source, created_at) "

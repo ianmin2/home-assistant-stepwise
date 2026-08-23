@@ -78,11 +78,13 @@
           "model": "Model",
           "aliases": "Also called (comma separated)",
           "retract": "Forget these",
-          "retire": "Retire it"
+          "retire": "Retire it",
+          "forget": "Forget these facts"
         },
         "data_description": {
           "retract": "Each one shows where it came from and when it was last confirmed.",
-          "retire": "It stops matching what you say, but its history stays."
+          "retire": "It stops matching what you say, but its history stays.",
+          "forget": "Anything ticked is removed. A fact that cannot be removed is permanent."
         }
       },
       "runs": {

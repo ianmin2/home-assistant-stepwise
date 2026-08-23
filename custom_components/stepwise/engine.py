@@ -73,6 +73,7 @@ from .resolution import (
 from .speech import sentence
 from .store import Store
 from .util import (
+    contradicts,
     elapsed_seconds,
     iso,
     normalise,
@@ -156,13 +157,6 @@ _ORDINALS = {
     "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
     "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
 }
-# Markers that turn a claim into a contradiction of a stored one.
-_OPPOSITES = (
-    ("first", "last"), ("top", "bottom"), ("before", "after"),
-    ("start", "end"), ("above", "below"), ("clockwise", "anticlockwise"),
-    ("left", "right"), ("open", "closed"), ("on", "off"),
-)
-_NEGATIONS = ("no ", "not ", "never ", "isn't", "doesn't", "hasn't", "there's no", "without")
 
 
 def _continues(held: str, spoken: str) -> bool:
@@ -1830,19 +1824,7 @@ class Engine:
     @staticmethod
     def _contradicts(stored: str, claim: str) -> bool:
         """A contradiction is information, not an error — but spot it first."""
-        stored_words, claim_words = set(words(stored)), set(words(claim))
-        shared = stored_words & claim_words
-        if len(shared) < 2:
-            return False
-        for left, right in _OPPOSITES:
-            if (left in stored_words and right in claim_words) or (
-                right in stored_words and left in claim_words
-            ):
-                return True
-        stored_low, claim_low = f" {normalise(stored)} ", f" {normalise(claim)} "
-        negated_now = any(marker.strip() in claim_low for marker in _NEGATIONS)
-        negated_then = any(marker.strip() in stored_low for marker in _NEGATIONS)
-        return negated_now != negated_then and len(shared) >= 2
+        return contradicts(stored, claim)
 
     def _answer(
         self, question: str, run: Run, procedure: Procedure, step: Step | None

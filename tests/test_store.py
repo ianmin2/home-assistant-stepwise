@@ -292,5 +292,61 @@ class MigrationCase(unittest.TestCase):
         with self.assertRaises(store.StoreError):
             store.Store(path).connect()
 
+class ContradictionCase(StoreCase):
+    """Superseding used to need the same words, so opposites piled up."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.subject = self.store.save_subject(
+            models.Subject.new("the bread machine", "bread_machine")
+        )
+
+    def test_a_quirk_that_contradicts_one_held_replaces_it(self) -> None:
+        first = self.store.add_quirk(models.Quirk(self.subject.id, "the yeast goes in first"))
+        second = self.store.add_quirk(models.Quirk(self.subject.id, "the yeast goes in last"))
+        active = self.store.quirks(self.subject.id)
+        self.assertEqual([q.id for q in active], [second.id])
+        stale = self.store.get_quirk(first.id)
+        assert stale is not None
+        self.assertEqual(stale.status, const.QUIRK_SUPERSEDED)
+
+    def test_an_unrelated_quirk_is_kept_alongside(self) -> None:
+        self.store.add_quirk(models.Quirk(self.subject.id, "the yeast goes in first"))
+        self.store.add_quirk(models.Quirk(self.subject.id, "the pan needs a good soak"))
+        self.assertEqual(len(self.store.quirks(self.subject.id)), 2)
+
+    def test_a_fact_that_contradicts_one_held_replaces_it(self) -> None:
+        """Told the keys are in the bedroom and then the kitchen, an appending
+        store says both. That is the thing this is meant to be better than."""
+        self.store.add_fact("the keys are in the bedroom", self.subject.id)
+        self.store.add_fact("the keys are not in the bedroom", self.subject.id)
+        held = [fact["text"] for fact in self.store.facts(self.subject.id)]
+        self.assertEqual(held, ["the keys are not in the bedroom"])
+
+    def test_a_fact_can_be_forgotten(self) -> None:
+        fact_id = self.store.add_fact("takes a 15 mm spanner", self.subject.id)
+        self.store.forget_fact(fact_id)
+        self.assertEqual(self.store.facts(self.subject.id), [])
+
+
+class OrderingCase(StoreCase):
+    def test_two_runs_touched_in_the_same_instant_still_have_an_order(self) -> None:
+        """Millisecond stamps tie. "The one you last touched" must not be a
+        coin toss when it does."""
+        procedure = self.store.save_procedure(
+            models.Procedure.new("a loaf", [models.Step(1, "flour")])
+        )
+        stamp = util.iso()
+        first = models.Run.new(procedure.id, "the loaf")
+        second = models.Run.new(procedure.id, "the other loaf")
+        for run in (first, second):
+            run.started_at = run.updated_at = stamp
+            self.store.save_run(run)
+        self.store.touch_run(first.id, stamp)
+        self.assertEqual(self.store.open_runs()[0].id, first.id)
+        self.store.touch_run(second.id, stamp)
+        self.assertEqual(self.store.open_runs()[0].id, second.id)
+
+
 if __name__ == "__main__":
     unittest.main()

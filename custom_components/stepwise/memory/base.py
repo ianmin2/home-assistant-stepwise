@@ -38,3 +38,14 @@ class MemoryBackend:
         self, text: str, subject_id: str | None = None, source: str = "stepwise"
     ) -> bool:
         raise NotImplementedError
+
+    async def forget(self, fact_id: str) -> bool:
+        """Unlearn one fact.
+
+        Part of the contract, not an extra. A memory that can only be added to
+        is the thing this is meant to be better than: told one thing and then
+        the opposite, it ends up asserting both, with no way to settle it by
+        voice. A backend that genuinely cannot forget should return False and
+        say so, rather than quietly doing nothing.
+        """
+        return False

@@ -26,3 +26,7 @@ class BuiltinMemory(MemoryBackend):
     ) -> bool:
         await self.hass.async_add_executor_job(self.store.add_fact, text, subject_id, source)
         return True
+
+    async def forget(self, fact_id: str) -> bool:
+        await self.hass.async_add_executor_job(self.store.forget_fact, fact_id)
+        return True
