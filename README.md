@@ -16,38 +16,56 @@ time, across days, and picking up exactly where you left off.**
 
 ### A loaf, on a Tuesday
 
-<p align="center"><sub><b>Stepwise</b> on the left &nbsp;·&nbsp; <b>you</b> on the right</sub></p>
+<p align="center"><sub><b>Stepwise</b> quoted on the left &nbsp;·&nbsp; <b>you</b> on the right</sub></p>
 
 <p align="center"><sub>· &nbsp;Monday evening &nbsp;·</sub></p>
+
 <p align="right"><b>Find me a yaangzong rosemary loaf recipe for my bread maker.</b></p>
-<p align="left">Tangzhong — the water-roux method? Speech-to-text usually gives me that as <i>yaangzong</i>.</p>
+
+> Tangzhong, the water-roux method? Speech-to-text usually gives me that as <i>yaangzong</i>.
+
 <p align="right"><b>That's the one.</b></p>
-<p align="left">Found one, nine steps. I'll call it <b>the rosemary loaf</b> — say if you'd rather it was something else.</p>
+
+> Found one, nine steps. I'll call it <b>the rosemary loaf</b>.
 
 <p align="center"><sub>· &nbsp;Tuesday morning &nbsp;·</sub></p>
+
 <p align="right"><b>Guide me through it step by step.</b></p>
-<p align="left">Step one. Two hundred and fifty millilitres of water.</p>
+
+> Step one. Two hundred and fifty millilitres of water.
+
 <p align="right"><b>Oh — but my machine wants the yeast in first.</b></p>
-<p align="left">Which bread machine is it? The order depends on the model.</p>
+
+> Which bread machine is it? The order depends on the model.
+
 <p align="right"><i>(goes and checks)</i><br/><b>It's a Panasonic SD-2500.</b></p>
-<p align="left">Ah, that makes sense. Checking… you're right, that one takes the yeast first.<br/><br/>I've moved it to the front and noted it against this machine. Back to step one: five grams of dried yeast.</p>
+
+> Ah, that makes sense. Checking… you're right, that one takes the yeast first.<br/>I've moved it to the front and noted it against this machine.<br/><br/>Back to step one: five grams of dried yeast.
+
 <p align="right"><b>Done.</b></p>
-<p align="left">Four hundred grams of strong white flour.</p>
+
+> Four hundred grams of strong white flour.
+
 <p align="right"><b>Done.</b></p>
-<p align="left">Seven grams of salt.</p>
+
+> Seven grams of salt.
+
 <p align="right"><b>It's clumping a bit.</b></p>
-<p align="left">Noted, against step three.</p>
+
+> Noted, against step three.
 
 <p align="center"><sub>· &nbsp;🔔 &nbsp;the doorbell goes, and two hours pass &nbsp;·</sub></p>
+
 <p align="right"><b>Where were we?</b></p>
-<p align="left">On <b>the rosemary loaf</b>, you're on step three of nine, seven grams of salt.<br/>Last touched two hours ago.</p>
+
+> On <b>the rosemary loaf</b>, you're on step three of nine, seven grams of salt.<br/>Last touched two hours ago.
 
 That last exchange is the entire product.
 
-Nobody was interrogated up front. The recipe assumed what most machines
-assume, the mismatch surfaced when it mattered, and the model was asked for
-only once the answer changed the steps. Here is everything Stepwise was
-holding while the door was answered:
+Nobody was interrogated up front. The recipe assumed what most machines assume,
+the mismatch surfaced when it mattered, and the model was asked for only once
+the answer changed the steps. Here is everything Stepwise was holding while the
+door was answered:
 
 ```text
   the rosemary loaf                          Panasonic SD-2500
@@ -57,6 +75,7 @@ holding while the door was answered:
   learnt  09:41   yeast goes in first             ← this machine only
   moved   09:41   yeast 4 → 1, and back to step one, nothing being done
 ```
+
 ## The thing nobody else does
 
 A checklist app can list steps. Any assistant can read you a recipe. What
@@ -227,16 +246,26 @@ Timers are Home Assistant's own, and only ever started after a yes.
 <summary><b>🍞🎨 &nbsp;Two things at once — bread rising while you paint</b></summary>
 
 <p align="right"><b>Done, it's knocked back and shaped.</b></p>
-<p align="left">Prove for an hour. Shall I set a timer for that?</p>
+
+> Prove for an hour. Shall I set a timer for that?
+
 <p align="right"><b>Yes. I'll go and do the landing door while that proves.</b></p>
-<p align="left">Timer set for an hour.</p>
+
+> Timer set for an hour.
+
 <p align="right"><b>Where was I with the landing door?</b></p>
-<p align="left">On <b>the landing door</b>, you're on step two of five, wait forty-five minutes for the stripper to blister.<br/>Last touched yesterday.</p>
+
+> On <b>the landing door</b>, you're on step two of five, wait forty-five minutes for the stripper to blister.<br/>Last touched yesterday.
+
 <p align="right"><b>Right — scraped back. Done.</b></p>
-<p align="left">Neutralise with white spirit and leave to dry for an hour. Shall I set a timer for that?</p>
+
+> Neutralise with white spirit and leave to dry for an hour. Shall I set a timer for that?
+
 <p align="center"><sub>· &nbsp;⏲️ &nbsp;forty minutes later &nbsp;·</sub></p>
+
 <p align="right"><b>How's the loaf doing?</b></p>
-<p align="left">On <b>the rosemary loaf</b>, you're on step six of nine, prove for an hour.<br/>Last touched forty minutes ago.</p>
+
+> On <b>the rosemary loaf</b>, you're on step six of nine, prove for an hour.<br/>Last touched forty minutes ago.
 
 Two runs, two clocks, neither one guessing. Each is hot, warm or cold on its own
 elapsed time, and you switch between them by the name you gave them — never an
@@ -248,11 +277,16 @@ id, never a menu. Whatever you say next lands on the one you just named.
 <summary><b>🚲 &nbsp;"Change my bike chain" — which bike?</b></summary>
 
 <p align="right"><b>Talk me through changing my bike chain.</b></p>
-<p align="left">Which one — the winter bike, or the summer bike?</p>
+
+> Which one — the winter bike, or the summer bike?
+
 <p align="right"><b>The winter one.</b></p>
-<p align="left">That one's eleven speed, so it needs a quick link rather than a pin. You told me that in March — still right?</p>
+
+> That one's eleven speed, so it needs a quick link rather than a pin.<br/>You told me that in March — still right?
+
 <p align="right"><b>Still right.</b></p>
-<p align="left">Then first, shift onto the smallest ring at both ends.</p>
+
+> Then first, shift onto the smallest ring at both ends.
 
 Two bicycles are two subjects. A quirk learned about one is **never** applied to
 the other — because a quirk about a derailleur bike, silently applied to a
@@ -265,13 +299,20 @@ confidently wrong, mid-instruction, while your hands are covered in oil.
 <summary><b>🎨 &nbsp;Stripping a door, where the waiting is the job</b></summary>
 
 <p align="right"><b>Talk me through stripping the paint off the landing door.</b></p>
-<p align="left">Five steps. I'll call it <b>the landing door</b>.<br/><br/>Step one, mask the hinges and lay the dust sheets.</p>
+
+> Five steps. I'll call it <b>the landing door</b>.<br/><br/>Step one, mask the hinges and lay the dust sheets.
+
 <p align="right"><b>Done.</b></p>
-<p align="left">Brush the stripper on thickly, working top to bottom.</p>
+
+> Brush the stripper on thickly, working top to bottom.
+
 <p align="right"><b>Done.</b></p>
-<p align="left">Wait 45 minutes for it to blister. Shall I set a timer for that?</p>
+
+> Wait 45 minutes for it to blister. Shall I set a timer for that?
+
 <p align="right"><b>Go on.</b></p>
-<p align="left">Timer set for 45 minutes.</p>
+
+> Timer set for 45 minutes.
 
 Nobody wrote a duration field anywhere. The wording said forty-five minutes, so
 that is what it offered.
@@ -282,14 +323,22 @@ that is what it offered.
 <summary><b>🔬 &nbsp;A reaction, logged as it happens</b></summary>
 
 <p align="right"><b>Start the protocol on batch seven.</b></p>
-<p align="left">Step one, bring the buffer to thirty-seven degrees.</p>
+
+> Step one, bring the buffer to thirty-seven degrees.
+
 <p align="right"><b>Done.</b></p>
-<p align="left">Step two, add the substrate and start timing.</p>
+
+> Step two, add the substrate and start timing.
+
 <p align="right"><b>It's gone cloudy.</b></p>
-<p align="left">Noted, against step two.</p>
+
+> Noted, against step two.
+
 <p align="center"><sub>· &nbsp;🍽️ &nbsp;lunch &nbsp;·</sub></p>
+
 <p align="right"><b>Where were we?</b></p>
-<p align="left">On <b>batch seven</b>, you're on step two, and it's been two hours and ten minutes since you last touched it.<br/>You noted it went cloudy forty minutes in.</p>
+
+> On <b>batch seven</b>, you're on step two, and it's been two hours and ten minutes since you last touched it.<br/>You noted it went cloudy forty minutes in.
 
 Every advance, note, question and correction is timestamped in an append-only
 log. A run's history *is* a lab notebook, and it is already written by the time
@@ -301,9 +350,12 @@ you want it.
 <summary><b>🔧 &nbsp;A radiator valve, where being wrong matters</b></summary>
 
 <p align="right"><b>Swap the landing radiator to a thermostatic valve.</b></p>
-<p align="left">What pipe size is it? It decides which valve fits.</p>
+
+> What pipe size is it? It decides which valve fits.
+
 <p align="right"><b>Fifteen mil.</b></p>
-<p align="left">Noted, fifteen millimetres.<br/><br/>Step one, close the valves at both ends and drain it down. Tell me when that's done.</p>
+
+> Noted, fifteen millimetres.<br/><br/>Step one, close the valves at both ends and drain it down.
 
 It asks for a make, model or measurement **only when the answer changes the
 steps**, and never wastes your time asking when it doesn't. It is not a form.
@@ -313,10 +365,13 @@ steps**, and never wastes your time asking when it doesn't. It is not a form.
 <details>
 <summary><b>🔨 &nbsp;A build, before the thing exists</b></summary>
 
-<p align="right"><b>I'm building the ESP32 sensor project. The board and the case have arrived, the sensors haven't.</b></p>
-<p align="left">Noted against <b>the sensor project</b>: board and case in, sensors outstanding.<br/><br/>That leaves seven steps you can do now and three that wait on the sensors. Start with the seven?</p>
+<p align="right"><b>I'm building the ESP32 sensor project. The board and case have arrived, the sensors haven't.</b></p>
+
+> Noted against <b>the sensor project</b>: board and case in, sensors outstanding.<br/><br/>That leaves seven steps you can do now and three that wait on the sensors. Start with the seven?
+
 <p align="right"><b>Go on then.</b></p>
-<p align="left">Step one, flash the firmware before anything is soldered.</p>
+
+> Step one, flash the firmware before anything is soldered.
 
 A subject need not exist yet. For a build it holds the target rather than a
 product — the board, the pinout, the bill of materials, which parts have
