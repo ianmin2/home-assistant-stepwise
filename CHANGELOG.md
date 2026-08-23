@@ -3,7 +3,13 @@
 All notable changes to Stepwise are recorded here. Versions follow
 [semantic versioning](https://semver.org/).
 
-## [0.2.0] — 2026-08-23
+## [0.2.1] — 2026-08-23
+
+> 0.2.0 was tagged locally, swept twice before being pushed, and superseded by
+> the sweep's fixes — including one that would have bricked upgraded databases.
+> It was never published, so nothing ships under that number: this release is
+> everything 0.2.0 was meant to be, plus the twenty-two defects the two sweeps
+> found in it.
 
 **Trust the pointer, and trust what it says.** No new capabilities. The gaps
 this closes, and the ones deliberately left open, are set out in
