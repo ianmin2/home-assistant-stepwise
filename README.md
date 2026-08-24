@@ -507,6 +507,10 @@ Across the top: how many runs, procedures and things there are, and **how much
 room all of it takes on disk** — because it is your data and you should be able
 to see it growing.
 
+Nothing destructive happens without asking, and the asking says what actually
+goes — how many steps of history, how many quirks, what survives. Delete a run
+and the whole record comes back in the same breath, to copy and keep.
+
 **What the card will not do.** It never edits a run's history: that record is
 append-only, and a spine that can be rewritten is not a record — so history is
 read and exported, and a run is deleted whole or not at all (the export comes

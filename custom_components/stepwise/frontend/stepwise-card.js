@@ -43,7 +43,18 @@ const WORD = {
 function defineCard({ Base, html, css }) {
   class StepwiseCard extends Base {
     static get properties() {
-      return { hass: {}, _config: {}, _tab: {}, _data: {}, _open: {}, _busy: {}, _error: {} };
+      return {
+        hass: {},
+        _config: {},
+        _tab: {},
+        _data: {},
+        _open: {},
+        _busy: {},
+        _error: {},
+        _asking: {},
+        _record: {},
+        _copied: {},
+      };
     }
 
     constructor() {
@@ -53,6 +64,9 @@ function defineCard({ Base, html, css }) {
       this._open = null;
       this._busy = false;
       this._error = null;
+      this._asking = null;
+      this._record = null;
+      this._copied = false;
     }
 
     setConfig(config) {
@@ -99,14 +113,35 @@ function defineCard({ Base, html, css }) {
       }
     }
 
-    async _act(type, payload, confirm) {
-      if (confirm && !window.confirm(confirm)) return;
+    async _act(type, payload) {
       this._busy = true;
       try {
-        await this._call(type, payload);
+        const result = await this._call(type, payload);
         await this._refresh();
+        return result;
       } catch (err) {
         this._busy = false;
+        return null;
+      }
+    }
+
+    /*
+     * Destructive things ask first, and say plainly what goes. Anything that
+     * can hand back a copy of what it is about to destroy offers that in the
+     * same breath — refusing to give somebody the record before deleting it
+     * would be worse than the deletion.
+     */
+    _ask(asking) {
+      this._asking = asking;
+    }
+
+    async _confirmed() {
+      const asking = this._asking;
+      this._asking = null;
+      if (!asking) return;
+      const result = await this._act(asking.type, asking.payload);
+      if (asking.keepsake && result?.markdown) {
+        this._record = { title: asking.keepsake, markdown: result.markdown };
       }
     }
 
@@ -141,7 +176,55 @@ function defineCard({ Base, html, css }) {
           ${this._error ? html`<div class="error">${this._error}</div>` : ""}
           ${this._open ? this._renderRun() : this._renderTab()}
         </ha-card>
+        ${this._renderAsking()}
+        ${this._renderRecord()}
       `;
+    }
+
+    /*
+     * Home Assistant's own dialog: themed, dismissable, focus-trapped, and it
+     * does not freeze the page the way the browser's built-in box does.
+     */
+    _renderAsking() {
+      const asking = this._asking;
+      if (!asking) return html``;
+      return html`
+        <ha-dialog open heading=${asking.title} @closed=${() => { this._asking = null; }}>
+          <p class="ask">${asking.text}</p>
+          <ha-button slot="secondaryAction" @click=${() => { this._asking = null; }}>
+            Leave it
+          </ha-button>
+          <ha-button slot="primaryAction" class="danger" @click=${() => this._confirmed()}>
+            ${asking.confirm}
+          </ha-button>
+        </ha-dialog>
+      `;
+    }
+
+    _renderRecord() {
+      const record = this._record;
+      if (!record) return html``;
+      return html`
+        <ha-dialog open heading=${record.title} @closed=${() => { this._record = null; }}>
+          <pre class="record">${record.markdown}</pre>
+          <ha-button slot="secondaryAction" @click=${() => this._copy(record.markdown)}>
+            ${this._copied ? "Copied" : "Copy"}
+          </ha-button>
+          <ha-button slot="primaryAction" @click=${() => { this._record = null; }}>
+            Done
+          </ha-button>
+        </ha-dialog>
+      `;
+    }
+
+    async _copy(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        this._copied = true;
+        setTimeout(() => { this._copied = false; }, 2000);
+      } catch (err) {
+        this._error = "Could not reach the clipboard — select the text instead.";
+      }
     }
 
     _renderTab() {
@@ -173,9 +256,15 @@ function defineCard({ Base, html, css }) {
                 ` : html`
                   <button @click=${() => this._act("run/resume", { run_id: run.run_id })}>Pick it up</button>
                 `}
-                <button @click=${() => this._export(run.run_id)}>Export</button>
-                <button class="danger" @click=${() => this._act("run/delete", { run_id: run.run_id },
-                  `Delete ${run.reference}? Its whole history goes with it. Export it first if you want to keep it.`)}>Delete</button>
+                <button @click=${() => this._export(run.run_id, run.reference)}>Export</button>
+                <button class="danger" @click=${() => this._ask({
+                  title: `Delete ${run.reference}?`,
+                  text: `Everything recorded about this job goes with it — every step, note, question and correction, ${run.total_steps ? `all ${run.total_steps} steps` : "the lot"}. You will be handed a copy first.`,
+                  confirm: "Delete it",
+                  type: "run/delete",
+                  payload: { run_id: run.run_id },
+                  keepsake: run.reference,
+                })}>Delete</button>
               </div>
             </div>
           `)}
@@ -235,18 +324,35 @@ function defineCard({ Base, html, css }) {
                   <span>${q.claim}</span>
                   <span class="from">${q.learned_from === "user" ? "you told me" : q.learned_from === "web" ? "read somewhere" : q.learned_from}</span>
                   ${q.last_confirmed_at ? "" : html`<span class="unconfirmed" title="Never confirmed by you">unconfirmed</span>`}
-                  <button class="danger" @click=${() => this._act("quirk/retract", { quirk_id: q.id }, `Forget "${q.claim}"?`)}>Forget</button>
+                  <button class="danger" @click=${() => this._ask({
+                    title: "Forget this?",
+                    text: `"${q.claim}" — ${s.label} will stop being told this, and it will not be mentioned again.`,
+                    confirm: "Forget it",
+                    type: "quirk/retract",
+                    payload: { quirk_id: q.id },
+                  })}>Forget</button>
                 </div>
               `)}
               ${s.facts.map((f) => html`
                 <div class="quirk fact">
                   <span>${f.text}</span><span class="from">fact</span>
-                  <button class="danger" @click=${() => this._act("fact/forget", { fact_id: f.id }, `Forget "${f.text}"?`)}>Forget</button>
+                  <button class="danger" @click=${() => this._ask({
+                    title: "Forget this?",
+                    text: `"${f.text}" — this goes for good.`,
+                    confirm: "Forget it",
+                    type: "fact/forget",
+                    payload: { fact_id: f.id },
+                  })}>Forget</button>
                 </div>
               `)}
               <div class="acts">
-                <button class="danger" @click=${() => this._act("subject/delete", { subject_id: s.id },
-                  `Forget ${s.label}, and everything learnt about it?`)}>Forget this thing</button>
+                <button class="danger" @click=${() => this._ask({
+                  title: `Forget ${s.label}?`,
+                  text: `Everything learnt about it goes too — ${s.quirks.filter((q) => q.status === "active").length} quirk(s) and ${s.facts.length} fact(s). Runs it was part of keep their own history.`,
+                  confirm: "Forget it",
+                  type: "subject/delete",
+                  payload: { subject_id: s.id },
+                })}>Forget this thing</button>
               </div>
             </div>
           `)}
@@ -264,8 +370,13 @@ function defineCard({ Base, html, css }) {
               <div class="line1"><span class="ref">${p.title}</span><span class="subject">${p.total_steps} steps · ${p.source}</span></div>
               <div class="acts">
                 <button @click=${() => this._act("run/start", { procedure_id: p.id })}>Start</button>
-                <button class="danger" @click=${() => this._act("procedure/delete", { procedure_id: p.id },
-                  `Delete "${p.title}"? Runs of it keep their own copy of the steps.`)}>Delete</button>
+                <button class="danger" @click=${() => this._ask({
+                  title: `Delete "${p.title}"?`,
+                  text: "The template goes. Runs of it own their own copy of the steps and are untouched.",
+                  confirm: "Delete it",
+                  type: "procedure/delete",
+                  payload: { procedure_id: p.id },
+                })}>Delete</button>
               </div>
             </div>
           `)}
@@ -273,19 +384,18 @@ function defineCard({ Base, html, css }) {
       `;
     }
 
-    async _export(run_id) {
-      const result = await this.hass.callService("stepwise", "export_run", { run_id }, undefined, true, true);
-      const markdown = result?.response?.markdown ?? "";
-      // The viewer's sandbox blocks page-initiated downloads, so this opens the
-      // record for copying rather than pretending to save a file.
-      const w = window.open("", "_blank");
-      if (w) {
-        w.document.title = "Stepwise export";
-        const pre = w.document.createElement("pre");
-        pre.style.cssText = "white-space:pre-wrap;font:13px ui-monospace,monospace;padding:24px";
-        pre.textContent = markdown;
-        w.document.body.appendChild(pre);
+    async _export(run_id, title) {
+      // In a dialog rather than a popup window: a popup is blockable, and a
+      // record nobody can see is no better than one never handed over.
+      const result = await this.hass.callService(
+        "stepwise", "export_run", { run_id }, undefined, true, true
+      );
+      const markdown = result?.response?.markdown;
+      if (!markdown) {
+        this._error = "Nothing came back to export.";
+        return;
       }
+      this._record = { title: title || "The record", markdown };
     }
 
     static get styles() {
@@ -340,6 +450,11 @@ function defineCard({ Base, html, css }) {
         .event .at { color:var(--secondary-text-color); }
         .event .detail-text { flex:1; }
         .event .step-n { color:var(--secondary-text-color); }
+        .ask { margin:0; font-size:.95rem; line-height:1.45; max-width:46ch; }
+        ha-button.danger { --mdc-theme-primary: var(--error-color,#b00); }
+        .record { max-height:52vh; overflow:auto; white-space:pre-wrap; word-break:break-word;
+                  font:12px ui-monospace,SFMono-Regular,Menlo,monospace; margin:0;
+                  background:var(--secondary-background-color); padding:12px; border-radius:6px; }
         @media (max-width:420px) { .since { margin-left:0; } .event .detail-text { word-break:break-word; } }
       `;
     }

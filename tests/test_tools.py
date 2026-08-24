@@ -369,6 +369,40 @@ class TestTheManagerSurface(unittest.TestCase):
                         f"{node.name} touches the store without an executor",
                     )
 
+    def test_destructive_things_ask_first_and_say_what_goes(self) -> None:
+        """Every command that destroys something must be reached through the
+        confirmation, never called straight from a button."""
+        card = (INTEGRATION / "frontend" / "stepwise-card.js").read_text()
+        for destructive in (
+            "run/delete",
+            "subject/delete",
+            "procedure/delete",
+            "quirk/retract",
+            "fact/forget",
+        ):
+            self.assertNotIn(
+                f'_act("{destructive}"',
+                card,
+                f"{destructive} is called without asking first",
+            )
+            self.assertIn(f'type: "{destructive}"', card, f"{destructive} has no confirmation")
+
+    def test_the_browsers_own_dialogs_are_never_used(self) -> None:
+        """window.confirm freezes the page, ignores the theme, and cannot say
+        what is about to be lost. Home Assistant ships a real dialog."""
+        card = (INTEGRATION / "frontend" / "stepwise-card.js").read_text()
+        for relic in ("window.confirm", "window.alert", "window.prompt", "window.open"):
+            self.assertNotIn(relic, card, f"{relic} has no place here")
+        self.assertIn("ha-dialog", card, "confirmations should use Home Assistant's dialog")
+
+    def test_deleting_a_run_hands_the_record_back(self) -> None:
+        """Destroying the record of something somebody did, without offering
+        them a copy first, would be worse than the deletion."""
+        card = (INTEGRATION / "frontend" / "stepwise-card.js").read_text()
+        self.assertIn("keepsake", card)
+        websocket = (INTEGRATION / "websocket.py").read_text()
+        self.assertIn('vol.Optional("export_first", default=True)', websocket)
+
     def test_the_card_ships_with_the_integration(self) -> None:
         card = INTEGRATION / "frontend" / "stepwise-card.js"
         self.assertTrue(card.exists(), "the card file is missing")

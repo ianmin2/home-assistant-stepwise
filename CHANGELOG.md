@@ -29,6 +29,15 @@ behind it — the same kind of gap the sweeps keep finding, just in a picture.
 - **`stepwise.start_run` and `stepwise.reopen_run`**, so a dashboard button, a
   schedule or a script can begin a job or pick a stopped one back up.
 
+**Nothing destructive happens without asking**, in Home Assistant's own dialog
+— themed, dismissable, and it does not freeze the page the way the browser's
+built-in box does. Each one names what actually goes: how many steps of
+history, how many quirks and facts, whether runs keep their own copy. Deleting
+a run hands you the whole record back in the same breath, in a dialog you can
+copy from, because destroying what somebody did without offering them a copy
+first would be worse than the deletion. The export does the same, rather than
+opening a popup a browser is entitled to block.
+
 **What it deliberately will not do.** It never edits a run's history — that
 record is append-only, so history is read and exported, and a run is deleted
 whole or not at all, with the export handed back in the reply first. And it is
