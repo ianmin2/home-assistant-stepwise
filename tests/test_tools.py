@@ -11,6 +11,7 @@ import ast
 import json
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 INTEGRATION = Path(__file__).resolve().parents[1] / "custom_components" / "stepwise"
 
@@ -424,7 +425,9 @@ class TestTheManifestDeclaresWhatItUses(unittest.TestCase):
 
     # Platforms a custom integration forwards to are set up by the config
     # entry itself, not depended upon.
-    PLATFORMS = {"sensor", "binary_sensor", "button", "switch", "todo"}
+    PLATFORMS: ClassVar[frozenset[str]] = frozenset(
+        {"sensor", "binary_sensor", "button", "switch", "todo"}
+    )
 
     def test_every_component_imported_is_declared(self) -> None:
         used: set[str] = set()
