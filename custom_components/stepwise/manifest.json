@@ -9,11 +9,16 @@
     "@ianmin2"
   ],
   "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/ianmin2/home-assistant-stepwise",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/ianmin2/home-assistant-stepwise/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

@@ -3,6 +3,18 @@
 All notable changes to Stepwise are recorded here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [0.3.1] — 2026-08-24
+
+### Fixed
+
+- **Declare the components the card needs.** Serving it added imports of
+  `http` and `frontend`, and the manifest never said so — which means Home
+  Assistant does not guarantee either is set up before Stepwise is, and
+  `hass.http` may not be there when the card asks for it. `websocket_api`
+  was undeclared too. hassfest caught it in CI, after the tag had been
+  pushed; there is now a test that catches the whole class of it before a
+  commit, along with one for the manifest key order hassfest also wants.
+
 ## [0.3.0] — 2026-08-24
 
 ### The manager

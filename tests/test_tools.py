@@ -413,6 +413,46 @@ class TestTheManagerSurface(unittest.TestCase):
         self.assertIn("callWS", body)
 
 
+class TestTheManifestDeclaresWhatItUses(unittest.TestCase):
+    """Home Assistant will not guarantee a component is set up before us
+    unless the manifest says we need it.
+
+    Serving the card added imports of http and frontend and nobody noticed
+    until hassfest did, in CI, after the tag was already pushed. This is the
+    same check, run before the commit rather than after the release.
+    """
+
+    # Platforms a custom integration forwards to are set up by the config
+    # entry itself, not depended upon.
+    PLATFORMS = {"sensor", "binary_sensor", "button", "switch", "todo"}
+
+    def test_every_component_imported_is_declared(self) -> None:
+        used: set[str] = set()
+        for path in INTEGRATION.rglob("*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module.startswith("homeassistant.components."):
+                        used.add(node.module.split(".")[2])
+                    elif node.module == "homeassistant.components":
+                        used.update(alias.name for alias in node.names)
+        manifest = json.loads((INTEGRATION / "manifest.json").read_text())
+        declared = set(manifest.get("dependencies", [])) | set(
+            manifest.get("after_dependencies", [])
+        )
+        missing = used - declared - self.PLATFORMS
+        self.assertEqual(
+            missing,
+            set(),
+            f"imported but not in dependencies or after_dependencies: {sorted(missing)}",
+        )
+
+    def test_the_manifest_keys_are_ordered_the_way_hassfest_wants(self) -> None:
+        keys = list(json.loads((INTEGRATION / "manifest.json").read_text()))
+        self.assertEqual(keys[:2], ["domain", "name"])
+        self.assertEqual(keys[2:], sorted(keys[2:]))
+
+
 if __name__ == "__main__":
     unittest.main()
 
