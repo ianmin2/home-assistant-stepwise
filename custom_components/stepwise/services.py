@@ -26,6 +26,8 @@ from .store import Store
 SERVICE_EXPORT_RUN = "export_run"
 SERVICE_LIST_RUNS = "list_runs"
 SERVICE_FINISH_RUN = "finish_run"
+SERVICE_START_RUN = "start_run"
+SERVICE_REOPEN_RUN = "reopen_run"
 
 EXPORT_SCHEMA = vol.Schema(
     {
@@ -52,6 +54,17 @@ def _entry_data(hass: HomeAssistant) -> tuple[Store, object]:
         raise ServiceValidationError("Stepwise is not set up.")
     data = loaded[0].runtime_data
     return data.store, data.engine
+
+
+START_SCHEMA = vol.Schema(
+    {
+        vol.Required("procedure_id"): cv.string,
+        vol.Optional("reference"): cv.string,
+        vol.Optional("subject_id"): cv.string,
+    }
+)
+
+REOPEN_SCHEMA = vol.Schema({vol.Optional("run_id"): cv.string})
 
 
 @callback
@@ -137,10 +150,50 @@ def async_register(hass: HomeAssistant) -> None:
         schema=LIST_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+    async def start_run(call: ServiceCall) -> ServiceResponse:
+        """Begin a stored procedure from a button, a schedule or a script."""
+        _store, engine = _entry_data(hass)
+        reply = await hass.async_add_executor_job(
+            lambda: engine.run_start(
+                call.data["procedure_id"],
+                reference=call.data.get("reference"),
+                subject_id=call.data.get("subject_id"),
+            )
+        )
+        return reply.as_dict()
+
+    async def reopen_run(call: ServiceCall) -> ServiceResponse:
+        """Pick a run back up — the button behind "you left this, pick it up?"."""
+        _store, engine = _entry_data(hass)
+        reply = await hass.async_add_executor_job(
+            lambda: engine.run_reopen(run_id=call.data.get("run_id"))
+        )
+        return reply.as_dict()
+
     hass.services.async_register(DOMAIN, SERVICE_FINISH_RUN, finish_run, schema=FINISH_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_START_RUN,
+        start_run,
+        schema=START_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REOPEN_RUN,
+        reopen_run,
+        schema=REOPEN_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
 
 @callback
 def async_unregister(hass: HomeAssistant) -> None:
-    for service in (SERVICE_EXPORT_RUN, SERVICE_LIST_RUNS, SERVICE_FINISH_RUN):
+    for service in (
+        SERVICE_EXPORT_RUN,
+        SERVICE_LIST_RUNS,
+        SERVICE_FINISH_RUN,
+        SERVICE_START_RUN,
+        SERVICE_REOPEN_RUN,
+    ):
         hass.services.async_remove(DOMAIN, service)

@@ -11,15 +11,19 @@ import logging
 import os
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import llm
 from homeassistant.util import dt as dt_util
 
-from . import services
+from . import services, websocket
 from .const import DB_FILENAME, DOMAIN, EVENT_ADVANCED, EVENT_FINISHED
 from .engine import Engine, Settings
 from .llm_tools import StepwiseAPI
@@ -27,6 +31,8 @@ from .memory import MemoryBackend, build_backend
 from .models import Run, RunEvent
 from .search import SearchProvider, build_provider
 from .store import Store, StoreError
+
+PLATFORMS = [Platform.SENSOR]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +47,8 @@ EVENT_BUS_ANY = f"{DOMAIN}_event"
 EVENT_BUS_ADVANCED = f"{DOMAIN}_step_advanced"
 EVENT_BUS_FINISHED = f"{DOMAIN}_run_finished"
 
+CARD_URL = f"/{DOMAIN}/stepwise-card.js"
+
 
 @dataclass
 class StepwiseData:
@@ -51,6 +59,7 @@ class StepwiseData:
     api: StepwiseAPI
     search: SearchProvider
     memory: MemoryBackend
+    coordinator: Any | None = None
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: StepwiseConfigEntry) -> bool:
@@ -88,9 +97,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: StepwiseConfigEntry) -> 
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     services.async_register(hass)
+    websocket.async_register(hass)
+    await _async_serve_card(hass)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     _LOGGER.debug("Stepwise ready: %s", await hass.async_add_executor_job(store.stats))
     return True
+
+
+async def _async_serve_card(hass: HomeAssistant) -> None:
+    """Put the card where Lovelace can load it, once.
+
+    Registered as an extra module rather than asking people to add a resource
+    by hand: the card is part of the integration, not a separate download, and
+    a manager you have to install twice is a manager nobody installs.
+    """
+    if hass.data.get(f"{DOMAIN}_card"):
+        return
+    served = Path(__file__).parent / "frontend" / "stepwise-card.js"
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(served), cache_headers=False)]
+    )
+    version = hass.data.get(f"{DOMAIN}_version", "")
+    add_extra_js_url(hass, f"{CARD_URL}?v={version}" if version else CARD_URL)
+    hass.data[f"{DOMAIN}_card"] = True
 
 
 def _announcer(hass: HomeAssistant) -> Any:
@@ -124,6 +154,8 @@ def _announcer(hass: HomeAssistant) -> Any:
 async def async_unload_entry(hass: HomeAssistant, entry: StepwiseConfigEntry) -> bool:
     """Close the store. Run state is on disk, so there is nothing to flush."""
     data = entry.runtime_data
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     data.engine.observer = None
     services.async_unregister(hass)
     await hass.async_add_executor_job(data.store.close)

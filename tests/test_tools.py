@@ -294,6 +294,91 @@ class TestNothingGoesQuiet(unittest.TestCase):
                 self.fail(f"engine.py:{node.lineno} builds a Reply with empty speech")
 
 
+class TestTheManagerSurface(unittest.TestCase):
+    """The card can write, so what it can write to is the thing to pin.
+
+    websocket.py imports Home Assistant, so this reads it rather than running
+    it — enough to catch a command that quietly gains the power to rewrite the
+    one thing that must never be rewritten.
+    """
+
+    @staticmethod
+    def commands() -> dict[str, str]:
+        """Every registered command name, and the function behind it."""
+        tree = ast.parse((INTEGRATION / "websocket.py").read_text())
+        found: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                for arg in decorator.args:
+                    if not isinstance(arg, ast.Dict):
+                        continue
+                    for key, value in zip(arg.keys, arg.values, strict=False):
+                        is_type = (
+                            isinstance(key, ast.Call)
+                            and key.args
+                            and isinstance(key.args[0], ast.Constant)
+                            and key.args[0].value == "type"
+                        )
+                        if is_type and isinstance(value, ast.Constant):
+                            found[value.value] = node.name
+        return found
+
+    def test_every_declared_command_is_actually_registered(self) -> None:
+        source = (INTEGRATION / "websocket.py").read_text()
+        declared = self.commands()
+        for name in declared:
+            self.assertTrue(name.startswith("stepwise/"), name)
+        listed = ast.literal_eval(
+            source.split("COMMANDS = ", 1)[1].split(")", 1)[0] + ")"
+        )
+        self.assertEqual(
+            {f"stepwise/{item}" for item in listed},
+            set(declared),
+            "COMMANDS and the registered handlers disagree",
+        )
+
+    def test_nothing_offers_to_edit_the_history(self) -> None:
+        """`run_events` is append-only: a spine that can be rewritten is not a
+        record. The card may read it, export it, and delete a run whole — never
+        edit what happened."""
+        forbidden = ("event/", "history/", "event/save", "history/edit")
+        for name in self.commands():
+            for bad in forbidden:
+                self.assertNotIn(bad, name, f"{name} would edit the record")
+
+    def test_the_store_is_never_touched_from_the_event_loop(self) -> None:
+        """Every command reads through an executor, like the rest of the
+        integration — a websocket handler blocking the loop on SQLite is the
+        same bug as any other, just harder to notice."""
+        source = (INTEGRATION / "websocket.py").read_text()
+        tree = ast.parse(source)
+        lines = source.split("\n")
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
+            for method in ("store.get_run(", "store.stats(", "store.open_runs("):
+                if method in body:
+                    self.assertIn(
+                        "async_add_executor_job",
+                        body,
+                        f"{node.name} touches the store without an executor",
+                    )
+
+    def test_the_card_ships_with_the_integration(self) -> None:
+        card = INTEGRATION / "frontend" / "stepwise-card.js"
+        self.assertTrue(card.exists(), "the card file is missing")
+        body = card.read_text()
+        self.assertIn("stepwise-card", body)
+        # It talks over the websocket API, not to entities: nothing it shows
+        # should ever reach the recorder database.
+        self.assertIn("callWS", body)
+
+
 if __name__ == "__main__":
     unittest.main()
 

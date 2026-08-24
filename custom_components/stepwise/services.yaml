@@ -36,3 +36,29 @@ finish_run:
       default: false
       selector:
         boolean:
+
+start_run:
+  fields:
+    procedure_id:
+      required: true
+      example: prc_9f21c4
+      selector:
+        text:
+    reference:
+      required: false
+      example: the rosemary loaf
+      selector:
+        text:
+    subject_id:
+      required: false
+      example: panasonic_sd_2500
+      selector:
+        text:
+
+reopen_run:
+  fields:
+    run_id:
+      required: false
+      example: run_3e669631
+      selector:
+        text:

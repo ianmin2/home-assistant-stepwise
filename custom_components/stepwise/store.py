@@ -775,6 +775,41 @@ class Store:
         self._write("DELETE FROM facts WHERE id = ?", (fact_id,))
 
     # Housekeeping ------------------------------------------------------
+    def delete_run(self, run_id: str) -> None:
+        """Forget one run and everything hanging off it.
+
+        The cascade takes its steps, events and amendments with it — which is
+        the whole record of a job somebody did, so anything offering this
+        should offer the export first.
+        """
+        self._write("DELETE FROM runs WHERE id = ?", (run_id,))
+
+    def delete_procedure(self, procedure_id: str) -> None:
+        """Forget a template. Runs of it own their own steps and are unharmed."""
+        self._write(
+            "UPDATE runs SET procedure_id = procedure_id WHERE procedure_id = ?",
+            (procedure_id,),
+        )
+        self._write("DELETE FROM procedures WHERE id = ?", (procedure_id,))
+
+    def delete_subject(self, subject_id: str) -> None:
+        """Forget a thing, its quirks and its facts. Runs keep their history."""
+        self._write("DELETE FROM subjects WHERE id = ?", (subject_id,))
+
+    def get_fact(self, fact_id: str) -> dict[str, Any] | None:
+        row = self._row("SELECT * FROM facts WHERE id = ?", (fact_id,))
+        return dict(row) if row else None
+
+    def size_bytes(self) -> int:
+        """How much room all of this is taking, write-ahead log included."""
+        total = 0
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                total += os.path.getsize(f"{self.path}{suffix}")
+            except OSError:
+                continue
+        return total
+
     def prune_runs(self, keep_per_subject: int) -> int:
         """Bounded by construction: keep the last N closed runs per subject."""
         if keep_per_subject <= 0:

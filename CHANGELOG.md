@@ -5,9 +5,42 @@ All notable changes to Stepwise are recorded here. Versions follow
 
 ## [Unreleased]
 
-The third sweep — the correction flow and the resolution heuristics, attacked
-properly for the first time. Twenty-four findings, all executed before being
-believed; the full account, including three accepted as the right trade, is in
+### The manager
+
+Until now this was an integration you could talk to and could not look at. The
+README showed a card and nothing rendered it, which was a claim with no code
+behind it — the same kind of gap the sweeps keep finding, just in a picture.
+
+- **A Stepwise card**, shipped with the integration, so there is no resource to
+  install and no second download. Three tabs: runs on the go and finished, with
+  each one openable for its steps and its whole timestamped history; things,
+  with every quirk they have taught, where each came from, whether you ever
+  confirmed it, and a tap to forget any of it; and your library of procedures,
+  to start or delete. Across the top, how much of everything there is and how
+  much room it takes on disk.
+- **A websocket API** behind it — `stepwise/overview`, `runs`, `run`,
+  `subjects`, `procedures`, and the writes. Not entities: a run's step text in
+  an entity attribute would be copied into the recorder database and kept
+  there, quietly undoing the promise that everything Stepwise knows lives in
+  one file you can delete.
+- **Four sensors**, all plain numbers with no procedure in them, so they are
+  safe to record and worth graphing: runs in progress, procedures, things, and
+  database size.
+- **`stepwise.start_run` and `stepwise.reopen_run`**, so a dashboard button, a
+  schedule or a script can begin a job or pick a stopped one back up.
+
+**What it deliberately will not do.** It never edits a run's history — that
+record is append-only, so history is read and exported, and a run is deleted
+whole or not at all, with the export handed back in the reply first. And it is
+not a step-following card with tickboxes: Google built one for the Nest Hub,
+measured it, and deleted it, and ticking step five would contradict *only
+`run_advance` moves the pointer*.
+
+### The third sweep
+
+The correction flow and the resolution heuristics, attacked properly for the
+first time. Twenty-four findings, all executed before being believed; the full
+account, including three accepted as the right trade, is in
 [SWEEPS.md](SWEEPS.md).
 
 ### The correction flow

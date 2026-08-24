@@ -147,6 +147,50 @@
           "description": "Recorded as a fact, without judgement."
         }
       }
+    },
+    "start_run": {
+      "name": "Start a run",
+      "description": "Begin a stored procedure — from a dashboard button, a schedule or a script.",
+      "fields": {
+        "procedure_id": {
+          "name": "Procedure",
+          "description": "Which stored procedure to begin."
+        },
+        "reference": {
+          "name": "Call it",
+          "description": "What to call this run out loud. One is proposed if you leave it empty."
+        },
+        "subject_id": {
+          "name": "Thing",
+          "description": "Which of your things this run is about, if it matters."
+        }
+      }
+    },
+    "reopen_run": {
+      "name": "Pick a run back up",
+      "description": "Reopen a run that was stopped, exactly where it was left.",
+      "fields": {
+        "run_id": {
+          "name": "Run",
+          "description": "Leave empty for the one most recently stopped."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "runs_in_progress": {
+        "name": "Runs in progress"
+      },
+      "procedures": {
+        "name": "Procedures"
+      },
+      "things": {
+        "name": "Things"
+      },
+      "database_size": {
+        "name": "Database size"
+      }
     }
   }
 }

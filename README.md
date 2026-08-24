@@ -76,6 +76,9 @@ door was answered:
   moved   09:41   yeast 4 → 1, and back to step one, nothing being done
 ```
 
+That is not a drawing. Add the **Stepwise card** to any dashboard and it is
+what you get — see [the manager](#the-manager), below.
+
 ## The thing nobody else does
 
 A checklist app can list steps. Any assistant can read you a recipe. What
@@ -485,6 +488,49 @@ finger to scroll with. That decides the architecture, not the polish.
   fact. *"You never finished your loaf"* is a judgement, and it is why people
   stop opening apps.
 
+## The manager
+
+Everything above happens without a screen. This is for the times you want one:
+to see what is held, to correct something wrong, or to start a job with a
+button instead of a sentence.
+
+Add **Stepwise** from the card picker — it ships with the integration, so
+there is no resource to install and no second download.
+
+| Tab | What it does |
+|---|---|
+| **Runs** | Everything on the go and everything finished. Open one for its steps and its whole timestamped history. Put it down, finish it, pick it back up, export it, delete it |
+| **Things** | Every thing you own and every quirk it has taught, with where each came from and whether you ever confirmed it. Forget any of them in one tap |
+| **Library** | Your stored procedures. Start one, or delete one |
+
+Across the top: how many runs, procedures and things there are, and **how much
+room all of it takes on disk** — because it is your data and you should be able
+to see it growing.
+
+**What the card will not do.** It never edits a run's history: that record is
+append-only, and a spine that can be rewritten is not a record — so history is
+read and exported, and a run is deleted whole or not at all (the export comes
+back in the reply first). It is also not a step-following card with tickboxes.
+Google built one of those for the Nest Hub, measured it, and deleted it; the
+answer to what people actually wanted is the voice resumption this whole
+project is. Ticking step five would contradict *only `run_advance` moves the
+pointer*.
+
+It talks to the integration over a websocket API rather than through entities,
+so nothing it shows is ever copied into Home Assistant's recorder database.
+
+### On the dashboard
+
+Four sensors, all of them plain numbers with no procedure in them — safe to
+record, safe to graph:
+
+| | |
+|---|---|
+| `sensor.stepwise_runs_in_progress` | How many jobs are on the go |
+| `sensor.stepwise_procedures` | How many procedures are stored |
+| `sensor.stepwise_things` | How many things are on file |
+| `sensor.stepwise_database_size` | How much room all of it takes |
+
 ## For automations, and for keeping
 
 Stepwise holds the state; these are how everything else in your house reads it.
@@ -494,15 +540,17 @@ Stepwise holds the state; these are how everything else in your house reads it.
 | `stepwise.export_run` | The record of a run — every step, note, question and correction, timestamped — as markdown, CSV and rows. Nothing given, and it exports the one you last touched |
 | `stepwise.list_runs` | Everything on the go, with where each one is and how long since |
 | `stepwise.finish_run` | Close a run from a button or an automation |
+| `stepwise.start_run` | Begin a stored procedure — a button, a schedule, a script |
+| `stepwise.reopen_run` | Pick a stopped run back up, exactly where it was left |
 | `stepwise_step_advanced` | Fired on the event bus when a step is completed. *When the loaf reaches the prove, dim the kitchen* |
 | `stepwise_run_finished` | Fired when a run closes |
 | `stepwise_event` | Fired for anything at all that happens in a run |
 
-**Events rather than entities, on purpose.** A run's step text in an entity
-attribute is copied into Home Assistant's recorder database and kept there,
-which would quietly undo the promise below that everything Stepwise knows lives
-in one file you can delete. An entity surface is worth having and worth
-designing properly first — entity ids are permanent once they ship.
+**Events and websockets rather than entities, on purpose.** A run's step text
+in an entity attribute is copied into Home Assistant's recorder database and
+kept there, which would quietly undo the promise below that everything Stepwise
+knows lives in one file you can delete. So the card reads over a websocket
+where nothing is kept, and the only entities are four numbers.
 
 ## Where it falls short
 
